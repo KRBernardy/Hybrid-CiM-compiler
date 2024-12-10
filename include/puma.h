@@ -263,12 +263,17 @@ Vector operator*(float imm, Vector x);
 
 // Vector stream operations
 ImagePixelStream sig(ImagePixelStream xs);
+ImagePixelStream relu(ImagePixelStream xs);
 ImagePixelStream maxpool(ImagePixelStream xs, unsigned int hspan, unsigned int wspan);
+ImagePixelStream avgpool(ImagePixelStream xs, unsigned int hspan, unsigned int wspan);
 
 // Constant matrix operations
 Vector operator*(ConstantMatrix M, Vector x);
 ImagePixelStream operator*(ConvolutionalConstantMatrix M, ImagePixelStream x);
+
 // TODO: Implement built-in flatten operation from pixel stream to vector
+Vector flatten(ImagePixelStream x);
+ImagePixelStream unflatten(Vector x, unsigned int imageWidth, unsigned int imageHeight, unsigned int nChannels);
 
 // Training matrix operations
 Vector operator*(TrainingMatrix M, Vector x);

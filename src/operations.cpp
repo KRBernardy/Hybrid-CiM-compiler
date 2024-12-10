@@ -230,6 +230,25 @@ ImagePixelStream sig(ImagePixelStream xsparam) {
     return ImagePixelStream(ys);
 }
 
+ImagePixelStream relu(ImagePixelStream xsparam) {
+    ImagePixelStreamImpl* xs = xsparam.unwrap();
+    ImagePixelStreamImpl* ys = new ImagePixelStreamImpl(xs->getModel(), xs->imageWidth(), xs->imageHeight(), xs->nChannels());
+    ys->checkCompatibility(xs);
+    for(unsigned int t = 0; t < xs->nTiles(); ++t) {
+        ImagePixelStreamTile* xsTile = xs->getTile(t);
+        ImagePixelStreamTile* ysTile = ys->getTile(t);
+        // TODO: Convert the following into a single operation with codegened loops
+        for(unsigned int h = 0; h < xs->imageHeight(); ++h) {
+            for(unsigned int w = 0; w < xs->imageWidth(); ++w) {
+                ProducerOperation* x = xsTile->get(h, w);
+                ProducerOperation* y = new ALUVectorOperation(x->getModel(), ALUVectorOperation::RELU, x);
+                ysTile->add(h, w, y);
+            }
+        }
+    }
+    return ImagePixelStream(ys);
+}
+
 ImagePixelStream maxpool(ImagePixelStream xsparam, unsigned int hspan, unsigned int wspan) {
     ImagePixelStreamImpl* xs = xsparam.unwrap();
     unsigned int ysWidth = (xs->imageWidth() - 1)/wspan + 1;
@@ -255,6 +274,38 @@ ImagePixelStream maxpool(ImagePixelStream xsparam, unsigned int hspan, unsigned 
                 }
                 if((hh == hspan - 1 || hi == xs->imageHeight() - 1) && (ww == wspan - 1 || wi == xs->imageWidth() - 1)) {
                     ysTile->add(ho, wo, accum[ho][wo][accumIdx]);
+                }
+            }
+        }
+    }
+    return ImagePixelStream(ys);
+}
+
+ImagePixelStream avgpool(ImagePixelStream xsparam, unsigned int hspan, unsigned int wspan) {
+    ImagePixelStreamImpl* xs = xsparam.unwrap();
+    unsigned int ysWidth = (xs->imageWidth() - 1)/wspan + 1;
+    unsigned int ysHeight = (xs->imageHeight() - 1)/hspan + 1;
+    ImagePixelStreamImpl* ys = new ImagePixelStreamImpl(xs->getModel(), ysWidth, ysHeight, xs->nChannels());
+    for(unsigned int t = 0; t < xs->nTiles(); ++t) {
+        ImagePixelStreamTile* xsTile = xs->getTile(t);
+        ImagePixelStreamTile* ysTile = ys->getTile(t);
+        // TODO: Convert the following into a single operation with codegened loops
+        ProducerOperation* accum[ysHeight][ysWidth][hspan*wspan];
+        for(unsigned int hi = 0; hi < xs->imageHeight(); ++hi) {
+            for(unsigned int wi = 0; wi < xs->imageWidth(); ++wi) {
+                ProducerOperation* xTile = xsTile->get(hi, wi);
+                unsigned int ho = hi/hspan;
+                unsigned int hh = hi%hspan;
+                unsigned int wo = wi/wspan;
+                unsigned int ww = wi%wspan;
+                unsigned int accumIdx = hh*wspan + ww;
+                if(accumIdx == 0) {
+                    accum[ho][wo][accumIdx] = xTile;
+                } else {
+                    accum[ho][wo][accumIdx] = new ALUVectorOperation(accum[ho][wo][accumIdx - 1]->getModel(), ALUVectorOperation::ADD, accum[ho][wo][accumIdx - 1], xTile);
+                }
+                if((hh == hspan - 1 || hi == xs->imageHeight() - 1) && (ww == wspan - 1 || wi == xs->imageWidth() - 1)) {
+                    ysTile->add(ho, wo, new ALUVectorOperation(accum[ho][wo][accumIdx]->getModel(), ALUVectorOperation::DIV, accum[ho][wo][accumIdx], hspan*wspan));
                 }
             }
         }
@@ -345,6 +396,25 @@ ImagePixelStream operator*(ConvolutionalConstantMatrix Mparam, ImagePixelStream 
         }
     }
     return ImagePixelStream(ys[kernelHeight*kernelWidth*nInChannelTiles - 1]);
+}
+
+Vector flatten(ImagePixelStream x) {
+    ImagePixelStreamImpl* xs = x.unwrap();
+    ModelImpl* model = xs->getModel();
+    unsigned int flattened_size = xs->imageWidth() * xs->imageHeight() * xs->nChannels();
+    VectorImpl* flattened = new VectorImpl(model, flattened_size);
+    ProducerOperation* copy[flattened->nTiles()];
+
+    unsigned int index = 0;
+    for (unsigned int h = 0; h < xs->imageHeight(); ++h) {
+        for (unsigned int w = 0; w < xs->imageWidth(); ++w) {
+            for (unsigned int c = 0; c < xs->nChannels(); ++c) {
+                ProducerOperation* pixel = xs->getTile(c)->get(h, w);
+                flattened->setTile(index / MVMU_DIM, index % MVMU_DIM, pixel);
+                index++;
+            }
+        }
+    }
 }
 
 Vector operator*(TrainingMatrix Mparam, Vector xparam) {
