@@ -25,6 +25,10 @@ void ModelInstance::bind(std::string tensorName, float* data) {
     impl_->bind(tensorName, data);
 }
 
+void ModelInstance::load(std::string layerName, float* weights) {
+    impl_->load(layerName, weights);
+}
+
 void ModelInstance::generateData() {
     impl_->generateData();
 }
@@ -39,6 +43,10 @@ ModelInstanceImpl::ModelInstanceImpl(ModelImpl* model, Placer* placer)
 
 void ModelInstanceImpl::bind(std::string tensorName, float* data) {
     tensorData_[tensorName] = data;
+}
+
+void ModelInstanceImpl::load(std::string layerName, float* weights) {
+    bind(layerName + "mat", weights);
 }
 
 void ModelInstanceImpl::generateData() {

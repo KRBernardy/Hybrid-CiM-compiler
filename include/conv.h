@@ -11,11 +11,11 @@
 
 #include "puma.h"
 
-static ImagePixelStream conv2d(Model model, std::string layerName, unsigned int k_size_x, unsigned int k_size_y, unsigned int in_size_x, unsigned int in_size_y, unsigned int in_channels, unsigned int out_channels, ImagePixelStream in_stream) {
+static ImagePixelStream conv2d(Model model, std::string layerName, const unsigned int* kernel_size, ImagePixelStream in_stream, unsigned int stride_x = 1, unsigned int stride_y = 1, unsigned int padding_x = 0, unsigned int padding_y = 0) {
 
-    ConvolutionalConstantMatrix mat = ConvolutionalConstantMatrix::create(model, layerName + "conv_mat", k_size_x, k_size_y, in_channels, out_channels);
+    ConvolutionalConstantMatrix mat = ConvolutionalConstantMatrix::create(model, layerName + "mat", kernel_size[0], kernel_size[1], kernel_size[2], kernel_size[3]);
 
-    return mat*in_stream;
+    return conv2d_forward(mat, in_stream, stride_x, stride_y, padding_x, padding_y);
 
 }
 

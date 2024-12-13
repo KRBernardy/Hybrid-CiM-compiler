@@ -23,6 +23,7 @@ class ModelInstanceImpl {
         ModelInstanceImpl(ModelImpl* model, Placer* placer);
 
         void bind(std::string tensorName, float* data);
+        void load(std::string layerName, float* weights);
         void generateData();
 
 };

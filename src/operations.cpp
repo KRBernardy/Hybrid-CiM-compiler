@@ -398,6 +398,59 @@ ImagePixelStream operator*(ConvolutionalConstantMatrix Mparam, ImagePixelStream 
     return ImagePixelStream(ys[kernelHeight*kernelWidth*nInChannelTiles - 1]);
 }
 
+ImagePixelStream conv2d_forward(ConvolutionalConstantMatrix Mparam, ImagePixelStream xsparam, unsigned int stride_x, unsigned int stride_y, unsigned int padding_x, unsigned int padding_y) {
+    ConvolutionalConstantMatrixImpl* M = Mparam.unwrap();
+    ImagePixelStreamImpl* xs = xsparam.unwrap();
+    M->checkCompatibility(xs);
+    ModelImpl* model = M->getModel();
+    int kernelWidth = M->getKernelWidth();
+    int kernelHeight = M->getKernelHeight();
+    int nInChannelTiles = M->getNInChannelTiles();
+    int nOutChannelTiles = M->getNOutChannelTiles();
+    int imageWidth = xs->imageWidth();
+    int imageHeight = xs->imageHeight();
+    int outImageWidth = (imageWidth + 2 * padding_x - kernelWidth) / stride_x + 1;
+    int outImageHeight = (imageHeight + 2 * padding_y - kernelHeight) / stride_y + 1;
+    ImagePixelStreamImpl* ys[kernelHeight * kernelWidth * nInChannelTiles];
+    for (int kh = 0; kh < kernelHeight; ++kh) { // Instantiates tiles within the same accumulation
+        for (int kw = 0; kw < kernelWidth; ++kw) { // Instantiates tiles within the same accumulation
+            for (int w = 0; w < nInChannelTiles; ++w) { // Instantiates tiles within the same accumulation
+                int accumIdx = (kh * kernelWidth + kw) * nInChannelTiles + w;
+                ys[accumIdx] = new ImagePixelStreamImpl(model, outImageWidth, outImageHeight, M->getNOutChannels());
+                for(int h = 0; h < nOutChannelTiles; ++h) { // Instantiates independent tiles
+                    ConstantMatrixTile* mat = M->getTile(kh, kw, h, w);
+                    ImagePixelStreamTile* imageStream = xs->getTile(w);
+                    ImagePixelStreamTile* accumStreamIn = (accumIdx == 0)?NULL:ys[accumIdx - 1]->getTile(h); // Partial sum feeding in from previous tile in the same accumulation
+                    ImagePixelStreamTile* accumStreamOut = ys[accumIdx]->getTile(h); // Partial sum feeding out to the next tile in the same accumulation
+                    // TODO: Convert the following into a single operation with codegened loops
+                    for (int ho = 0; ho < outImageHeight; ++ho) {
+                        for (int wo = 0; wo < outImageWidth; ++wo) {
+                            int hi = ho * stride_y - padding_y + kh;
+                            int wi = wo * stride_x - padding_x + kw;
+                            bool inputInBounds = hi >= 0
+                                                && hi < imageHeight
+                                                && wi >= 0
+                                                && wi < imageWidth;
+                            ProducerOperation* producer;
+                            if (inputInBounds) {
+                                producer = new MVMOperation(model, mat, imageStream->get(hi, wi));
+                            } else {
+                                producer = new SetImmediateOperation(model, 0, mat->height()); // Use 0 for input padding
+                            }
+                            if (accumIdx == 0) {
+                                accumStreamOut->add(ho, wo, producer);
+                            } else {
+                                accumStreamOut->add(ho, wo, new ALUVectorOperation(model, ALUVectorOperation::ADD, producer, accumStreamIn->get(ho, wo)));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return ImagePixelStream(ys[kernelHeight * kernelWidth * nInChannelTiles - 1]);
+}
+/*
 Vector flatten(ImagePixelStream x) {
     ImagePixelStreamImpl* xs = x.unwrap();
     ModelImpl* model = xs->getModel();
@@ -416,7 +469,7 @@ Vector flatten(ImagePixelStream x) {
         }
     }
 }
-
+*/
 Vector operator*(TrainingMatrix Mparam, Vector xparam) {
     TrainingMatrixImpl* M = Mparam.unwrap();
     ModelImpl* model = M->getModel();

@@ -223,6 +223,7 @@ class ModelInstance {
         static ModelInstance create(Model model);
 
         void bind(std::string tensorName, float* data);
+        void load(std::string layerName, float* weights);
         void generateData();
 
         ModelInstanceImpl* unwrap();
@@ -270,6 +271,7 @@ ImagePixelStream avgpool(ImagePixelStream xs, unsigned int hspan, unsigned int w
 // Constant matrix operations
 Vector operator*(ConstantMatrix M, Vector x);
 ImagePixelStream operator*(ConvolutionalConstantMatrix M, ImagePixelStream x);
+ImagePixelStream conv2d_forward(ConvolutionalConstantMatrix Mparam, ImagePixelStream xsparam, unsigned int stride_x, unsigned int stride_y, unsigned int padding_x, unsigned int padding_y);
 
 // TODO: Implement built-in flatten operation from pixel stream to vector
 Vector flatten(ImagePixelStream x);
