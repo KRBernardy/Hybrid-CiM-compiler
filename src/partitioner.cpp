@@ -493,13 +493,18 @@ void Partitioner::insertLoadsAndStores() {
                         numStores_ += store->length();
                         cloneAssignment(producer, store);
                     }
-                    if(loads[getVCore(consumer)] == NULL) {
-                        LoadOperation* load = new LoadOperation(model_, store);
-                        numLoads_ += load->length();
-                        cloneAssignment(consumer, load);
-                        loads[getVCore(consumer)] = load;
+                    if (VectorRebuildOperation* vro = dynamic_cast<VectorRebuildOperation*>(consumer)) {
+                        vro->replace(producer, store);
                     }
-                    consumer->replaceOperand(producer, loads[getVCore(consumer)]);
+                    else {
+                        if(loads[getVCore(consumer)] == NULL) {
+                            LoadOperation* load = new LoadOperation(model_, store);
+                            numLoads_ += load->length();
+                            cloneAssignment(consumer, load);
+                            loads[getVCore(consumer)] = load;
+                        }
+                        consumer->replaceOperand(producer, loads[getVCore(consumer)]);
+                    }
                 }
             }
         }
@@ -517,6 +522,7 @@ void Partitioner::insertSendsAndRecives() {
             for(auto u = store->user_begin(); u != store->user_end(); ) {
                 TileMemoryReadOperation* read = *u;
                 ++u; // replaceSrc may remove read from store's users
+                // TODO: Send can be partial if read operation is a VectorRebuildOperation
                 if(getVTile(store) != getVTile(read)) {
                     if(recvs[getVTile(read)] == NULL) {
                         SendOperation* send = new SendOperation(model_, store);

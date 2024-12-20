@@ -32,6 +32,12 @@ class CoreAllocator {
 
         unsigned int allocate(unsigned int size);
         void free(unsigned int pos, unsigned int size);
+        void print(unsigned int start, unsigned int end) {
+            for(unsigned int i = start; i < end; ++i) {
+                std::cout << memPool_[i];
+            }
+            std::cout << std::endl;
+        }
 
 };
 
@@ -332,6 +338,7 @@ void RegisterAllocator::allocateDataRegisters(unsigned int pTile, unsigned int p
         auto next = op; ++next;
         Operation* nextOp = (next != coreOperationList.end())?(*next):(NULL);
         std::set<ProducerOperation*>& liveOut = liveIn[nextOp];
+        bool isRebuild = false;
 
         // Process operands
         if(ConsumerOperation* consumer = dynamic_cast<ConsumerOperation*>(*op)) {
@@ -373,6 +380,21 @@ void RegisterAllocator::allocateDataRegisters(unsigned int pTile, unsigned int p
                     }
                 }
 
+                // If the operation is a vector rebuild, the registers are freed after the rebuild is allocated
+                // This is because the rebuild operation is actually a set of loads and copies, the producer for it cannot be freed until the rebuild is done
+                if (VectorRebuildOperation* producer = dynamic_cast<VectorRebuildOperation*>(consumer)) {
+                    assert(!liveIn[*op].count(producer));
+                    isRebuild = true;
+                    if(liveOut.count(producer)) {
+                        unsigned int reg = allocateRegistersWithSpilling(producer->length(), allocator, liveNow, spillTracker, spillAddressReg, coreOperationList, op);
+                        assignRegister(producer, reg);
+                        liveNow.insert(producer);
+                    } else {
+                        // Producer already assigned to a reserved input or output register
+                        assert(isRegisterAssigned(producer) || producerDoesNotWriteToRegister(producer));
+                    }
+                }
+
                 // Free registers for operands that are no longer live
                 for(unsigned int o = 0; o < consumer->numOperands(); ++o) {
                     ProducerOperation* producer = consumer->getOperand(o);
@@ -398,19 +420,20 @@ void RegisterAllocator::allocateDataRegisters(unsigned int pTile, unsigned int p
             }
         }
 
-        // Allocate register for new operation
-        if(ProducerOperation* producer = dynamic_cast<ProducerOperation*>(*op)) {
-            assert(!liveIn[*op].count(producer));
-            if(liveOut.count(producer)) {
-                unsigned int reg = allocateRegistersWithSpilling(producer->length(), allocator, liveNow, spillTracker, spillAddressReg, coreOperationList, op);
-                assignRegister(producer, reg);
-                liveNow.insert(producer);
-            } else {
+        // Allocate register for new operation unless it is a vector rebuild
+        if (!isRebuild) {
+            if(ProducerOperation* producer = dynamic_cast<ProducerOperation*>(*op)) {
+                assert(!liveIn[*op].count(producer));
+                if(liveOut.count(producer)) {
+                    unsigned int reg = allocateRegistersWithSpilling(producer->length(), allocator, liveNow, spillTracker, spillAddressReg, coreOperationList, op);
+                    assignRegister(producer, reg);
+                    liveNow.insert(producer);
+                } else {
                 // Producer already assigned to a reserved input or output register
                 assert(isRegisterAssigned(producer) || producerDoesNotWriteToRegister(producer));
+                }
             }
         }
-
     }
 
 }

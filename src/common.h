@@ -69,6 +69,7 @@ class SendOperation;
 class ReceiveOperation;
 class WriteInputOperation;
 class ReadOutputOperation;
+class VectorRebuildOperation;
 class PseudoInputOperation;
 class PseudoOutputOperation;
 

@@ -450,26 +450,36 @@ ImagePixelStream conv2d_forward(ConvolutionalConstantMatrix Mparam, ImagePixelSt
     }
     return ImagePixelStream(ys[kernelHeight * kernelWidth * nInChannelTiles - 1]);
 }
-/*
+
 Vector flatten(ImagePixelStream x) {
     ImagePixelStreamImpl* xs = x.unwrap();
     ModelImpl* model = xs->getModel();
     unsigned int flattened_size = xs->imageWidth() * xs->imageHeight() * xs->nChannels();
+    unsigned int single_channel_size = xs->imageWidth() * xs->imageHeight();
     VectorImpl* flattened = new VectorImpl(model, flattened_size);
-    ProducerOperation* copy[flattened->nTiles()];
 
+    std::vector<ProducerOperation*> producers;
+    std::vector<unsigned int> indices;
     unsigned int index = 0;
-    for (unsigned int h = 0; h < xs->imageHeight(); ++h) {
-        for (unsigned int w = 0; w < xs->imageWidth(); ++w) {
-            for (unsigned int c = 0; c < xs->nChannels(); ++c) {
+    for (unsigned int c = 0; c < xs->nChannels(); ++c) {
+        for (unsigned int h = 0; h < xs->imageHeight(); ++h) {
+            for (unsigned int w = 0; w < xs->imageWidth(); ++w) {
                 ProducerOperation* pixel = xs->getTile(c)->get(h, w);
-                flattened->setTile(index / MVMU_DIM, index % MVMU_DIM, pixel);
+                producers.push_back(pixel);
+                indices.push_back(index / single_channel_size);
+                if (producers.size() == MVMU_DIM || index == flattened_size - 1) {
+                    ProducerOperation* producer = new VectorRebuildOperation(model, producers, indices);
+                    producers.clear();
+                    indices.clear();
+                    flattened->setTile(index / MVMU_DIM, producer);
+                }
                 index++;
             }
         }
     }
+    return Vector(flattened);
 }
-*/
+
 Vector operator*(TrainingMatrix Mparam, Vector xparam) {
     TrainingMatrixImpl* M = Mparam.unwrap();
     ModelImpl* model = M->getModel();
@@ -534,26 +544,21 @@ Operation::Operation(ModelImpl* model, unsigned int length) : model_(model), len
 }
 
 ConsumerOperation::ConsumerOperation(ProducerOperation* op1, ProducerOperation* op2) {
-    if(op1 != NULL) {
-        operands_.push_back(op1);
-        op1->addUser(this);
-        if(op2 != NULL) {
-            operands_.push_back(op2);
-            op2->addUser(this);
-        }
-    } else {
-        assert(op2 == NULL);
+    if(op1 != NULL) addOperand(op1);
+    if(op2 != NULL) addOperand(op2);
+}
+
+DataMovementOperation::DataMovementOperation(bool partial, unsigned int start, unsigned int dataLength)
+    : partial_(partial), start_(start), dataLength_(dataLength) {
+    assert(!partial || dataLength > 0);
+    if (!partial) {
+        dataLength_ = length_;
     }
 }
 
 TileMemoryReadOperation::TileMemoryReadOperation(TileMemoryWriteOperation* src1, TileMemoryWriteOperation* src2) {
-    assert(src1 != NULL);
-    srcs_.push_back(src1);
-    src1->addUser(this);
-    if(src2 != NULL) {
-        srcs_.push_back(src2);
-        src2->addUser(this);
-    }
+    if (src1 != NULL) addSrc(src1);
+    if (src2 != NULL) addSrc(src2);
 }
 
 InputOperation::InputOperation(InputVectorTile* src) : src_(src) {
@@ -619,29 +624,48 @@ ALUVectorOperation::ALUVectorOperation(ModelImpl* model, OpCode opCode, Producer
 SetImmediateOperation::SetImmediateOperation(ModelImpl* model, unsigned int imm, unsigned int length) : Operation(model, length), imm_(imm) {
 }
 
-CopyOperation::CopyOperation(ModelImpl* model, ProducerOperation* src) : Operation(model, src->length()), ConsumerOperation(src) {
+CopyOperation::CopyOperation(ModelImpl* model, ProducerOperation* src, bool partial, unsigned int start, unsigned int dataLength)
+    : Operation(model, src->length()), ConsumerOperation(src), DataMovementOperation(partial, start, dataLength) {
     assert(src != NULL);
 }
 
-LoadOperation::LoadOperation(ModelImpl* model, TileMemoryWriteOperation* src) : Operation(model, src->length()), TileMemoryReadOperation(src) {
+LoadOperation::LoadOperation(ModelImpl* model, TileMemoryWriteOperation* src, bool partial, unsigned int start, unsigned int dataLength)
+    : Operation(model, src->length()), TileMemoryReadOperation(src), DataMovementOperation(partial, start, dataLength) {
 }
 
-StoreOperation::StoreOperation(ModelImpl* model, ProducerOperation* src) : Operation(model, src->length()), ConsumerOperation(src) {
+StoreOperation::StoreOperation(ModelImpl* model, ProducerOperation* src, bool partial, unsigned int start, unsigned int dataLength)
+    : Operation(model, src->length()), ConsumerOperation(src), DataMovementOperation(partial, start, dataLength) {
     assert(src != NULL);
 }
 
-SendOperation::SendOperation(ModelImpl* model, TileMemoryWriteOperation* src) : Operation(model, src->length()), TileMemoryReadOperation(src), dst_(NULL) {
+SendOperation::SendOperation(ModelImpl* model, TileMemoryWriteOperation* src, bool partial, unsigned int start, unsigned int dataLength)
+    : Operation(model, src->length()), TileMemoryReadOperation(src), dst_(NULL), DataMovementOperation(partial, start, dataLength) {
 }
 
-ReceiveOperation::ReceiveOperation(ModelImpl* model, SendOperation* src) : Operation(model, src->length()), src_(src) {
+ReceiveOperation::ReceiveOperation(ModelImpl* model, SendOperation* src, bool partial, unsigned int start, unsigned int dataLength)
+    : Operation(model, src->length()), src_(src), DataMovementOperation(partial, start, dataLength) {
     src->setDst(this);
 }
 
-WriteInputOperation::WriteInputOperation(ModelImpl* model, InputVectorTile* src) : Operation(model, src->length()), InputOperation(src) {
+WriteInputOperation::WriteInputOperation(ModelImpl* model, InputVectorTile* src)
+    : Operation(model, src->length()), InputOperation(src) {
 }
 
-ReadOutputOperation::ReadOutputOperation(ModelImpl* model, TileMemoryWriteOperation* src, OutputVectorTile* dst) : Operation(model, src->length()), TileMemoryReadOperation(src), OutputOperation(dst) {
+ReadOutputOperation::ReadOutputOperation(ModelImpl* model, TileMemoryWriteOperation* src, OutputVectorTile* dst)
+    : Operation(model, src->length()), TileMemoryReadOperation(src), OutputOperation(dst) {
     assert(src->length() == dst->length());
+}
+
+VectorRebuildOperation::VectorRebuildOperation(ModelImpl* model, std::vector<ProducerOperation*>& srcs, std::vector<unsigned int>& indices)
+    : Operation(model, srcs.size()), ConsumerOperation(), TileMemoryReadOperation(), length_(srcs.size()) {
+    assert(srcs.size() == indices.size());
+    assert(srcs.size() <= MVMU_DIM && "Rebuild operations larger than one MVMU are not supported");
+    for(unsigned int i = 0; i < srcs.size(); ++i) {
+        assert(srcs[i] != NULL);
+        addOperand(srcs[i]);
+        indices_of_copy_[srcs[i]] = indices[i];
+        places_of_copy_[srcs[i]] = i;
+    }
 }
 
 PseudoInputOperation::PseudoInputOperation(ModelImpl* model, InputVectorTile* src) : Operation(model, src->length()), InputOperation(src) {
@@ -665,9 +689,33 @@ void StoreOperation::addTileMemoryAddressOperand(ProducerOperation* address) {
     address->addUser(this);
 }
 
+void VectorRebuildOperation::addTileMemoryAddressOperand(TileMemoryWriteOperation* src, ProducerOperation* address) {
+    assert(address_of_load_[src] == NULL && "Cannot reset tile memory address operand!");
+    assert(address->length() == 1 && "Address must be of length 1!");
+    address_of_load_[src] = address;
+    address->addUser(this);
+}
+
 void SendOperation::setDst(ReceiveOperation* dst) {
     assert(dst_ == NULL && "Cannot reset destination of send operation");
     dst_ = dst;
+}
+
+void ConsumerOperation::addOperand(ProducerOperation* op) {
+    assert(op != NULL);
+    operands_.push_back(op);
+    op->addUser(this);
+}
+
+void ConsumerOperation::removeOperand(ProducerOperation* op) {
+    for(unsigned int i = 0; i < operands_.size(); ++i) {
+        if(operands_[i] == op) {
+            operands_.erase(operands_.begin() + i);
+            op->removeUser(this);
+            return;
+        }
+    }
+    assert(0 && "Operand to be removed not found");
 }
 
 bool ConsumerOperation::uses(ProducerOperation* op) {
@@ -687,6 +735,23 @@ void ConsumerOperation::replaceOperand(ProducerOperation* op, ProducerOperation*
             replacement->addUser(this);
         }
     }
+}
+
+void TileMemoryReadOperation::addSrc(TileMemoryWriteOperation* src) {
+    assert(src != NULL);
+    srcs_.push_back(src);
+    src->addUser(this);
+}
+
+void TileMemoryReadOperation::removeSrc(TileMemoryWriteOperation* src) {
+    for(unsigned int i = 0; i < srcs_.size(); ++i) {
+        if(srcs_[i] == src) {
+            srcs_.erase(srcs_.begin() + i);
+            src->removeUser(this);
+            return;
+        }
+    }
+    assert(0 && "Source to be removed not found");
 }
 
 void TileMemoryReadOperation::replaceSrc(TileMemoryWriteOperation* old, TileMemoryWriteOperation* replacement) {
@@ -788,6 +853,15 @@ bool CoalescedTrainingOperationSet::isComplete() {
         }
     }
     return true;
+}
+
+void VectorRebuildOperation::replace(ProducerOperation* old, TileMemoryWriteOperation* replacement) {
+    places_of_load_[replacement] = places_of_copy_[old];
+    indices_of_load_[replacement] = indices_of_copy_[old];
+    places_of_copy_.erase(old);
+    indices_of_copy_.erase(old);
+    removeOperand(old);
+    addSrc(replacement);
 }
 
 std::string Operation::printNodeName() {
@@ -910,6 +984,10 @@ std::string ReadOutputOperation::printOperationType() {
     return "ReadOutput";
 }
 
+std::string VectorRebuildOperation::printOperationType() {
+    return "VectorRebuild";
+}
+
 std::string PseudoInputOperation::printOperationType() {
     return "PseudoInput";
 }
@@ -957,6 +1035,13 @@ void WriteInputOperation::printNodeAndEdges(std::ostream& fout) {
 
 void ReadOutputOperation::printNodeAndEdges(std::ostream& fout) {
     OutputOperation::printNodeAndEdges(fout);
+}
+
+void VectorRebuildOperation::printNodeAndEdges(std::ostream& fout) {
+    Operation::printNodeAndEdges(fout);
+    for(ProducerOperation* op : operands_) {
+        fout << op->printNodeName() << " -> " << printNodeName() << ";" << std::endl;
+    }
 }
 
 

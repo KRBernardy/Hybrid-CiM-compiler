@@ -30,7 +30,7 @@ void MemoryAllocator::memoryAllocation() {
         Operation* op = *it;
         if(TileMemoryWriteOperation* write = dynamic_cast<TileMemoryWriteOperation*>(op)) {
             // FIXME: Receives used by the same read output operation on tile 1 should be assigned the same memory location
-            unsigned int address = memalloc(partitioner_->getVTile(write), write->length());
+            unsigned int address = memalloc(partitioner_->getVTile(write), write->getDataLength());
             assignTileMemoryAddress(write, address);
             if(StoreOperation* store = dynamic_cast<StoreOperation*>(write)) {
                 SetImmediateOperation* seti = new SetImmediateOperation(model_, address);
@@ -43,6 +43,11 @@ void MemoryAllocator::memoryAllocation() {
                     SetImmediateOperation* seti = new SetImmediateOperation(model_, address);
                     partitioner_->cloneAssignment(load, seti);
                     load->addTileMemoryAddressOperand(seti);
+                }
+                if (VectorRebuildOperation* rebuild = dynamic_cast<VectorRebuildOperation*>(read)) {
+                    SetImmediateOperation* seti = new SetImmediateOperation(model_, address);
+                    partitioner_->cloneAssignment(rebuild, seti);
+                    rebuild->addTileMemoryAddressOperand(write, seti);
                 }
             }
         }

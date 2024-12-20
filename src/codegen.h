@@ -33,6 +33,7 @@ class CodeGenerator {
         std::string codegen(ReceiveOperation* recv);
         std::string codegen(WriteInputOperation* write);
         std::string codegen(ReadOutputOperation* read);
+        std::string codegen(VectorRebuildOperation* rebuild);
 
     public:
 

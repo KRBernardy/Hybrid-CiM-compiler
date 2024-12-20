@@ -77,6 +77,8 @@ void CodeGenerator::codegen() {
                     coreCode << codegen(load);
                 } else if(StoreOperation* store = dynamic_cast<StoreOperation*>(coreOp)) {
                     coreCode << codegen(store);
+                } else if(VectorRebuildOperation* rebuild = dynamic_cast<VectorRebuildOperation*>(coreOp)) {
+                    coreCode << codegen(rebuild);
                 } else {
                     assert(0 && "Unsupported operation for code generation!");
                 }
@@ -304,3 +306,25 @@ std::string CodeGenerator::codegen(ReadOutputOperation* read) {
     return "";
 }
 
+std::string CodeGenerator::codegen(VectorRebuildOperation* rebuild) {
+    std::stringstream ss;
+    for (int i = 0; i < rebuild->numSrcs(); ++i) {
+        TileMemoryWriteOperation* src = rebuild->getSrc(i);
+        ss << "load("
+           << "d1=" << registerAllocator_->getRegister(rebuild) + rebuild->getPlace(src) << ", "
+           << "r1=" << registerAllocator_->getRegister(rebuild->getAddress(src)) + rebuild->getIndex(src) << ", "
+           << "load_width=" << 1 << ", "
+           << "vec=" << 1
+           << ")\n";
+    }
+    for (int i = 0; i < rebuild->numOperands(); ++i) {
+        ProducerOperation* src = rebuild->getOperand(i);
+        ss << "copy("
+           << "d1=" << registerAllocator_->getRegister(rebuild) + rebuild->getPlace(src) << ", "
+           << "r1=" << registerAllocator_->getRegister(src) + rebuild->getIndex(src) << ", "
+           << "vec=" << 1 << ", "
+           << "src_type=" << 1
+           << ")\n";
+    }
+    return ss.str();
+}

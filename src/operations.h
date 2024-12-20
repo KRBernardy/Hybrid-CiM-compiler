@@ -10,6 +10,7 @@
 #include <set>
 #include <string>
 #include <vector>
+#include <map>
 
 #include "common.h"
 
@@ -72,12 +73,33 @@ class ConsumerOperation : public virtual Operation {
 
         unsigned int numOperands() { return operands_.size(); }
         ProducerOperation* getOperand(unsigned int i) { return operands_[i]; }
+        void addOperand(ProducerOperation* op);
+        void removeOperand(ProducerOperation* op);
         bool uses(ProducerOperation* op);
         void replaceOperand(ProducerOperation* op, ProducerOperation* replacement);
 
 };
 
-class TileMemoryWriteOperation : public virtual Operation {
+class DataMovementOperation : public virtual Operation {
+
+    protected:
+
+        bool partial_;
+        unsigned int start_;
+        unsigned int dataLength_;
+
+        DataMovementOperation(bool partial, unsigned int start, unsigned int dataLength);
+        DataMovementOperation() : DataMovementOperation(false, 0, 0) { }
+
+    public:
+    
+        bool isPartial() { return partial_; }
+        unsigned int getStart() { return start_; }
+        unsigned int getDataLength() { return dataLength_; }
+
+};
+
+class TileMemoryWriteOperation : public virtual DataMovementOperation {
 
     protected:
 
@@ -99,18 +121,20 @@ class TileMemoryWriteOperation : public virtual Operation {
 
 };
 
-class TileMemoryReadOperation : public virtual Operation {
+class TileMemoryReadOperation : public virtual DataMovementOperation {
 
     protected:
 
         std::vector<TileMemoryWriteOperation*> srcs_;
 
-        TileMemoryReadOperation(TileMemoryWriteOperation* src1, TileMemoryWriteOperation* src2=NULL);
+        TileMemoryReadOperation(TileMemoryWriteOperation* src1 = NULL, TileMemoryWriteOperation* src2 = NULL);
 
     public:
 
         unsigned int numSrcs() { return srcs_.size(); }
         TileMemoryWriteOperation* getSrc(unsigned int i) { return srcs_[i]; }
+        void addSrc(TileMemoryWriteOperation* src);
+        void removeSrc(TileMemoryWriteOperation* src);
         void replaceSrc(TileMemoryWriteOperation* old, TileMemoryWriteOperation* replacement);
 
 };
@@ -301,11 +325,11 @@ class SetImmediateOperation : public ProducerOperation, public CoreOperation {
 
 };
 
-class CopyOperation : public ProducerOperation, public ConsumerOperation, public CoreOperation {
+class CopyOperation : public ProducerOperation, public ConsumerOperation, public DataMovementOperation, public CoreOperation {
 
     public:
 
-        CopyOperation(ModelImpl* model, ProducerOperation* src);
+        CopyOperation(ModelImpl* model, ProducerOperation* src, bool partial = false, unsigned int start = 0, unsigned int dataLength = 1);
 
         std::string printOperationType();
         void printNodeAndEdges(std::ostream& fout) { ProducerOperation::printNodeAndEdges(fout); }
@@ -316,7 +340,7 @@ class LoadOperation : public ProducerOperation, public ConsumerOperation, public
 
     public:
 
-        LoadOperation(ModelImpl* model, TileMemoryWriteOperation* src);
+        LoadOperation(ModelImpl* model, TileMemoryWriteOperation* src, bool partial = false, unsigned int start = 0, unsigned int dataLength = 1);
 
         void addTileMemoryAddressOperand(ProducerOperation* address);
 
@@ -330,7 +354,7 @@ class StoreOperation : public ConsumerOperation, public TileMemoryWriteOperation
 
     public:
 
-        StoreOperation(ModelImpl* model, ProducerOperation* src);
+        StoreOperation(ModelImpl* model, ProducerOperation* src, bool partial = false, unsigned int start = 0, unsigned int dataLength = 1);
 
         void addTileMemoryAddressOperand(ProducerOperation* address);
 
@@ -348,7 +372,7 @@ class SendOperation : public TileMemoryReadOperation, public TileOperation {
 
     public:
 
-        SendOperation(ModelImpl* model, TileMemoryWriteOperation* src);
+        SendOperation(ModelImpl* model, TileMemoryWriteOperation* src, bool partial = false, unsigned int start = 0, unsigned int dataLength = 1);
 
         ReceiveOperation* getDst() { return dst_; }
         void setDst(ReceiveOperation* dst);
@@ -367,7 +391,7 @@ class ReceiveOperation : public TileMemoryWriteOperation, public TileOperation {
 
     public:
 
-        ReceiveOperation(ModelImpl* model, SendOperation* src);
+        ReceiveOperation(ModelImpl* model, SendOperation* src, bool partial = false, unsigned int start = 0, unsigned int dataLength = 1);
 
         SendOperation* getSrc() { return src_; }
 
@@ -393,6 +417,37 @@ class ReadOutputOperation : public OutputOperation, public TileMemoryReadOperati
     public:
 
         ReadOutputOperation(ModelImpl* model, TileMemoryWriteOperation* src, OutputVectorTile* dst);
+
+        std::string printOperationType();
+        void printNodeAndEdges(std::ostream& fout);
+
+};
+
+class VectorRebuildOperation : public ProducerOperation, public ConsumerOperation, public TileMemoryReadOperation, public CoreOperation {
+
+    protected:
+
+        unsigned int length_;
+        std::map<ProducerOperation*, unsigned int> places_of_copy_;
+        std::map<ProducerOperation*, unsigned int> indices_of_copy_;
+        std::map<TileMemoryWriteOperation*, unsigned int> places_of_load_;
+        std::map<TileMemoryWriteOperation*, unsigned int> indices_of_load_;
+        std::map<TileMemoryWriteOperation*, ProducerOperation*> address_of_load_;
+
+    public:
+
+        VectorRebuildOperation(ModelImpl* model, std::vector<ProducerOperation*>& srcs, std::vector<unsigned int>& indices);
+
+        unsigned int getLength() { return length_; }
+        unsigned int getPlace(ProducerOperation* i) { return places_of_copy_[i]; }
+        unsigned int getPlace(TileMemoryWriteOperation* i) { return places_of_load_[i]; }
+        unsigned int getIndex(ProducerOperation* i) { return indices_of_copy_[i]; }
+        unsigned int getIndex(TileMemoryWriteOperation* i) { return indices_of_load_[i]; }
+        ProducerOperation* getAddress(TileMemoryWriteOperation* i) { return address_of_load_[i]; }
+
+        void addTileMemoryAddressOperand(TileMemoryWriteOperation* src, ProducerOperation* address);
+
+        void replace(ProducerOperation* old, TileMemoryWriteOperation* replacement);
 
         std::string printOperationType();
         void printNodeAndEdges(std::ostream& fout);
