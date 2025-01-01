@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <fstream>
 #include <sstream>
+#include <climits>
 
 #include "puma.h"
 
@@ -487,6 +488,7 @@ void Partitioner::insertLoadsAndStores() {
             for(auto u = producer->user_begin(); u != producer->user_end(); ) {
                 ConsumerOperation* consumer = *u;
                 ++u; // replaceOperand may remove consumer from producer's users
+
                 if(getVCore(producer) != getVCore(consumer)) {
                     if(store == NULL) {
                         store = new StoreOperation(model_, producer);
@@ -494,7 +496,23 @@ void Partitioner::insertLoadsAndStores() {
                         cloneAssignment(producer, store);
                     }
                     if (VectorRebuildOperation* vro = dynamic_cast<VectorRebuildOperation*>(consumer)) {
-                        vro->replace(producer, store);
+                        // We will generate a partial load operation to save memory for VectorRebuildOperation
+                        // Therefore, we will not check if the load is already created.
+
+                        // Find the needed part of the producer
+                        // The indices and places are not the same for the load and the producer, so regenerate them
+                        unsigned int start = UINT_MAX, end = 0;
+                        for (auto i = vro->getIndexBegin(producer); i != vro->getIndexEnd(producer); ++i) {
+                            start = std::min(start, *i);
+                            end = std::max(end, *i);
+                        }
+                        // Create the load operation by range just found
+                        LoadOperation* load = new LoadOperation(model_, store, true, start, end - start + 1);
+                        numLoads_ += load->getDataLength(); // length = length, but dataLength = 1, here we will store dataLength
+                        cloneAssignment(vro, load);
+                        vro->replaceOperand(producer, load);
+                        vro->updatePlaceAndIndex(producer, load);
+                        
                     }
                     else {
                         if(loads[getVCore(consumer)] == NULL) {

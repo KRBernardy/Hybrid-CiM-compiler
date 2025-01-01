@@ -412,6 +412,17 @@ void RegisterAllocator::allocateDataRegisters(unsigned int pTile, unsigned int p
                                 allocator.free(getRegister(load), load->length());
                             }
                         } else {
+
+                            std::cout << consumer->printOperationType() << std::endl;
+                            for(auto op = coreOperationList.begin(); op != coreOperationList.end(); ++op) {
+                                std::cout << (*op)->printOperationType() << std::endl;
+                            }
+
+                            std::cout << std::endl;
+                            for (auto op : liveNow) {
+                                std::cout << op->printOperationType() << std::endl;
+                            }
+
                             assert(0 && "Operand must either be a live operation or a spilled register load!");
                         }
                     }

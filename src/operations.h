@@ -423,31 +423,23 @@ class ReadOutputOperation : public OutputOperation, public TileMemoryReadOperati
 
 };
 
-class VectorRebuildOperation : public ProducerOperation, public ConsumerOperation, public TileMemoryReadOperation, public CoreOperation {
+class VectorRebuildOperation : public ProducerOperation, public ConsumerOperation, public CoreOperation {
 
     protected:
 
-        unsigned int length_;
-        std::map<ProducerOperation*, unsigned int> places_of_copy_;
-        std::map<ProducerOperation*, unsigned int> indices_of_copy_;
-        std::map<TileMemoryWriteOperation*, unsigned int> places_of_load_;
-        std::map<TileMemoryWriteOperation*, unsigned int> indices_of_load_;
-        std::map<TileMemoryWriteOperation*, ProducerOperation*> address_of_load_;
+        std::set<ProducerOperation*> operandSet_;
+        std::map<ProducerOperation*, std::vector<unsigned int>> places_;
+        std::map<ProducerOperation*, std::vector<unsigned int>> indices_;
 
     public:
 
         VectorRebuildOperation(ModelImpl* model, std::vector<ProducerOperation*>& srcs, std::vector<unsigned int>& indices);
 
-        unsigned int getLength() { return length_; }
-        unsigned int getPlace(ProducerOperation* i) { return places_of_copy_[i]; }
-        unsigned int getPlace(TileMemoryWriteOperation* i) { return places_of_load_[i]; }
-        unsigned int getIndex(ProducerOperation* i) { return indices_of_copy_[i]; }
-        unsigned int getIndex(TileMemoryWriteOperation* i) { return indices_of_load_[i]; }
-        ProducerOperation* getAddress(TileMemoryWriteOperation* i) { return address_of_load_[i]; }
-
-        void addTileMemoryAddressOperand(TileMemoryWriteOperation* src, ProducerOperation* address);
-
-        void replace(ProducerOperation* old, TileMemoryWriteOperation* replacement);
+        std::vector<unsigned int>::iterator getPlaceBegin(ProducerOperation* i) { return places_[i].begin(); }
+        std::vector<unsigned int>::iterator getPlaceEnd(ProducerOperation* i) { return places_[i].end(); }
+        std::vector<unsigned int>::iterator getIndexBegin(ProducerOperation* i) { return indices_[i].begin(); }
+        std::vector<unsigned int>::iterator getIndexEnd(ProducerOperation* i) { return indices_[i].end(); }
+        void updatePlaceAndIndex(ProducerOperation* producer, LoadOperation* load);
 
         std::string printOperationType();
         void printNodeAndEdges(std::ostream& fout);

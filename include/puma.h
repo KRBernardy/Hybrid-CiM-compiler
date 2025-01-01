@@ -18,7 +18,7 @@ struct CompilerOptions {
 
         GraphPartitioningScheme gp_ = GP_ROW_MAJOR;
         bool coalesceMVMOperations_ = true;
-        bool printDebugInfo_ = false;
+        bool printDebugInfo_ = true;
 
 };
 
@@ -271,11 +271,13 @@ ImagePixelStream avgpool(ImagePixelStream xs, unsigned int hspan, unsigned int w
 // Constant matrix operations
 Vector operator*(ConstantMatrix M, Vector x);
 ImagePixelStream operator*(ConvolutionalConstantMatrix M, ImagePixelStream x);
+ImagePixelStream operator+(ImagePixelStream x1, ImagePixelStream x2);
 ImagePixelStream conv2d_forward(ConvolutionalConstantMatrix Mparam, ImagePixelStream xsparam, unsigned int stride_x, unsigned int stride_y, unsigned int padding_x, unsigned int padding_y);
 
 // TODO: Implement built-in flatten operation from pixel stream to vector
 Vector flatten(ImagePixelStream x);
 ImagePixelStream unflatten(Vector x, unsigned int imageWidth, unsigned int imageHeight, unsigned int nChannels);
+ImagePixelStream merge(std::vector<ImagePixelStream>& xs);
 
 // Training matrix operations
 Vector operator*(TrainingMatrix M, Vector x);

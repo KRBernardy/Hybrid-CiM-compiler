@@ -305,7 +305,8 @@ ImagePixelStream avgpool(ImagePixelStream xsparam, unsigned int hspan, unsigned 
                     accum[ho][wo][accumIdx] = new ALUVectorOperation(accum[ho][wo][accumIdx - 1]->getModel(), ALUVectorOperation::ADD, accum[ho][wo][accumIdx - 1], xTile);
                 }
                 if((hh == hspan - 1 || hi == xs->imageHeight() - 1) && (ww == wspan - 1 || wi == xs->imageWidth() - 1)) {
-                    ysTile->add(ho, wo, new ALUVectorOperation(accum[ho][wo][accumIdx]->getModel(), ALUVectorOperation::DIV, accum[ho][wo][accumIdx], hspan*wspan));
+                    SetImmediateOperation* num = new SetImmediateOperation(accum[ho][wo][accumIdx]->getModel(), 1.0 / ((hh + 1) * (ww + 1)), accum[ho][wo][accumIdx]->length());
+                    ysTile->add(ho, wo, new ALUVectorOperation(accum[ho][wo][accumIdx]->getModel(), ALUVectorOperation::MUL, accum[ho][wo][accumIdx], num));
                 }
             }
         }
@@ -398,6 +399,31 @@ ImagePixelStream operator*(ConvolutionalConstantMatrix Mparam, ImagePixelStream 
     return ImagePixelStream(ys[kernelHeight*kernelWidth*nInChannelTiles - 1]);
 }
 
+ImagePixelStream operator+(ImagePixelStream x1param, ImagePixelStream x2param) {
+    ImagePixelStreamImpl* x1 = x1param.unwrap();
+    ImagePixelStreamImpl* x2 = x2param.unwrap();
+    x1->checkCompatibility(x2);
+    ModelImpl* model = x1->getModel();
+    ImagePixelStreamImpl* y = new ImagePixelStreamImpl(model, x1->imageWidth(), x1->imageHeight(), x1->nChannels());
+    y->checkCompatibility(x1);
+    y->checkCompatibility(x2);
+    for(unsigned int t = 0; t < x1->nTiles(); ++t) {
+        ImagePixelStreamTile* x1Tile = x1->getTile(t);
+        ImagePixelStreamTile* x2Tile = x2->getTile(t);
+        ImagePixelStreamTile* yTile = y->getTile(t);
+        // TODO: Convert the following into a single operation with codegened loops
+        for(unsigned int h = 0; h < x1->imageHeight(); ++h) {
+            for(unsigned int w = 0; w < x1->imageWidth(); ++w) {
+                ProducerOperation* x1Pixel = x1Tile->get(h, w);
+                ProducerOperation* x2Pixel = x2Tile->get(h, w);
+                ProducerOperation* yPixel = new ALUVectorOperation(model, ALUVectorOperation::ADD, x1Pixel, x2Pixel);
+                yTile->add(h, w, yPixel);
+            }
+        }
+    }
+    return ImagePixelStream(y);
+}
+
 ImagePixelStream conv2d_forward(ConvolutionalConstantMatrix Mparam, ImagePixelStream xsparam, unsigned int stride_x, unsigned int stride_y, unsigned int padding_x, unsigned int padding_y) {
     ConvolutionalConstantMatrixImpl* M = Mparam.unwrap();
     ImagePixelStreamImpl* xs = xsparam.unwrap();
@@ -464,7 +490,7 @@ Vector flatten(ImagePixelStream x) {
     for (unsigned int c = 0; c < xs->nChannels(); ++c) {
         for (unsigned int h = 0; h < xs->imageHeight(); ++h) {
             for (unsigned int w = 0; w < xs->imageWidth(); ++w) {
-                ProducerOperation* pixel = xs->getTile(c)->get(h, w);
+                ProducerOperation* pixel = xs->getTile(c / MVMU_DIM)->get(h, w);
                 producers.push_back(pixel);
                 indices.push_back(index / single_channel_size);
                 if (producers.size() == MVMU_DIM || index == flattened_size - 1) {
@@ -478,6 +504,48 @@ Vector flatten(ImagePixelStream x) {
         }
     }
     return Vector(flattened);
+}
+
+ImagePixelStream merge(std::vector<ImagePixelStream>& list) {
+    unsigned int len = list.size();
+    assert(len > 0);
+    for (unsigned int i = 1; i < len; ++i) {
+        list[i].unwrap()->checkCompatibility(list[0].unwrap());
+    }
+    ModelImpl* model = list[0].unwrap()->getModel();
+    unsigned int imageWidth = list[0].unwrap()->imageWidth();
+    unsigned int imageHeight = list[0].unwrap()->imageHeight();
+    unsigned int nChannels_per_image = list[0].unwrap()->nChannels();
+    unsigned int nChannels_merged = nChannels_per_image * len;
+    unsigned int nTiles_per_image = list[0].unwrap()->nTiles();
+    unsigned int nTiles_merged = (nChannels_merged - 1) / MVMU_DIM + 1;
+    ImagePixelStreamImpl* ys = new ImagePixelStreamImpl(model, imageWidth, imageHeight, nChannels_merged);
+    for (unsigned int h = 0; h < imageHeight; ++h) {
+        for (unsigned int w = 0; w < imageWidth; ++w) {
+            for (unsigned int t = 0; t < nTiles_merged; ++t) {
+                unsigned int length_of_tile;
+                if (t == nTiles_merged - 1) {
+                    length_of_tile = nChannels_merged % MVMU_DIM;
+                } else {
+                    length_of_tile = MVMU_DIM;
+                }
+                std::vector<ProducerOperation*> producers(length_of_tile);
+                std::vector<unsigned int> indices(length_of_tile);
+                for (unsigned int i = 0; i < length_of_tile; ++i) {
+                    unsigned int index = t * MVMU_DIM + i;
+                    unsigned int image_index = index / nChannels_per_image;
+                    unsigned int tile_index = (index % nChannels_per_image) / MVMU_DIM;
+                    unsigned int channel_index = (index % nChannels_per_image) % MVMU_DIM;
+                    ImagePixelStreamImpl* xs = list[image_index].unwrap();
+                    producers[i] = xs->getTile(tile_index)->get(h, w);
+                    indices[i] = channel_index;
+                }
+                ProducerOperation* producer = new VectorRebuildOperation(model, producers, indices);
+                ys->getTile(t)->add(h, w, producer);
+            }
+        }
+    }
+    return ImagePixelStream(ys);
 }
 
 Vector operator*(TrainingMatrix Mparam, Vector xparam) {
@@ -657,15 +725,33 @@ ReadOutputOperation::ReadOutputOperation(ModelImpl* model, TileMemoryWriteOperat
 }
 
 VectorRebuildOperation::VectorRebuildOperation(ModelImpl* model, std::vector<ProducerOperation*>& srcs, std::vector<unsigned int>& indices)
-    : Operation(model, srcs.size()), ConsumerOperation(), TileMemoryReadOperation(), length_(srcs.size()) {
+    : Operation(model, srcs.size()), ConsumerOperation() {
     assert(srcs.size() == indices.size());
     assert(srcs.size() <= MVMU_DIM && "Rebuild operations larger than one MVMU are not supported");
     for(unsigned int i = 0; i < srcs.size(); ++i) {
         assert(srcs[i] != NULL);
-        addOperand(srcs[i]);
-        indices_of_copy_[srcs[i]] = indices[i];
-        places_of_copy_[srcs[i]] = i;
+        if (!operandSet_.count(srcs[i])) {
+            addOperand(srcs[i]);
+            operandSet_.insert(srcs[i]);
+            indices_[srcs[i]] = std::vector<unsigned int>();
+            places_[srcs[i]] = std::vector<unsigned int>();
+        }
+        indices_[srcs[i]].push_back(indices[i]);
+        places_[srcs[i]].push_back(i);
     }
+}
+
+void VectorRebuildOperation::updatePlaceAndIndex(ProducerOperation* producer, LoadOperation* load) {
+    assert(operandSet_.count(producer));
+    assert(load->isPartial());
+    places_[load] = std::vector<unsigned int>(places_[producer].size());
+    indices_[load] = std::vector<unsigned int>(indices_[producer].size());
+    for (int i = 0; i < places_[producer].size(); ++i) {
+        places_[load][i] = places_[producer][i];
+        indices_[load][i] = indices_[producer][i] - load->getStart();
+    }
+    places_.erase(producer);
+    indices_.erase(producer);
 }
 
 PseudoInputOperation::PseudoInputOperation(ModelImpl* model, InputVectorTile* src) : Operation(model, src->length()), InputOperation(src) {
@@ -686,13 +772,6 @@ void StoreOperation::addTileMemoryAddressOperand(ProducerOperation* address) {
     assert(operands_.size() == 1 && "Cannot set tile memory address operand!");
     assert(address->length() == 1 && "Address must be of length 1!");
     operands_.push_back(address);
-    address->addUser(this);
-}
-
-void VectorRebuildOperation::addTileMemoryAddressOperand(TileMemoryWriteOperation* src, ProducerOperation* address) {
-    assert(address_of_load_[src] == NULL && "Cannot reset tile memory address operand!");
-    assert(address->length() == 1 && "Address must be of length 1!");
-    address_of_load_[src] = address;
     address->addUser(this);
 }
 
@@ -853,15 +932,6 @@ bool CoalescedTrainingOperationSet::isComplete() {
         }
     }
     return true;
-}
-
-void VectorRebuildOperation::replace(ProducerOperation* old, TileMemoryWriteOperation* replacement) {
-    places_of_load_[replacement] = places_of_copy_[old];
-    indices_of_load_[replacement] = indices_of_copy_[old];
-    places_of_copy_.erase(old);
-    indices_of_copy_.erase(old);
-    removeOperand(old);
-    addSrc(replacement);
 }
 
 std::string Operation::printNodeName() {

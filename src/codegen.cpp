@@ -248,12 +248,12 @@ std::string CodeGenerator::codegen(CopyOperation* copy) {
 std::string CodeGenerator::codegen(LoadOperation* load) {
     std::stringstream ss;
     unsigned int loadWidth;
-    for(loadWidth = MAX_LOAD_STORE_WIDTH; !(load->length()%loadWidth == 0); --loadWidth);
+    for(loadWidth = MAX_LOAD_STORE_WIDTH; !(load->getDataLength()%loadWidth == 0); --loadWidth);
     ss << "load("
        << "d1=" << registerAllocator_->getRegister(load) << ", "
-       << "r1=" << registerAllocator_->getRegister(load->getOperand(0)) << ", "
+       << "r1=" << registerAllocator_->getRegister(load->getOperand(0)) + (load->isPartial() ? load->getStart() : 0) << ", "
        << "load_width=" << loadWidth << ", "
-       << "vec=" << load->length()/loadWidth
+       << "vec=" << load->getDataLength()/loadWidth
        << ")\n";
     return ss.str();
 }
@@ -308,23 +308,17 @@ std::string CodeGenerator::codegen(ReadOutputOperation* read) {
 
 std::string CodeGenerator::codegen(VectorRebuildOperation* rebuild) {
     std::stringstream ss;
-    for (int i = 0; i < rebuild->numSrcs(); ++i) {
-        TileMemoryWriteOperation* src = rebuild->getSrc(i);
-        ss << "load("
-           << "d1=" << registerAllocator_->getRegister(rebuild) + rebuild->getPlace(src) << ", "
-           << "r1=" << registerAllocator_->getRegister(rebuild->getAddress(src)) + rebuild->getIndex(src) << ", "
-           << "load_width=" << 1 << ", "
-           << "vec=" << 1
-           << ")\n";
-    }
     for (int i = 0; i < rebuild->numOperands(); ++i) {
         ProducerOperation* src = rebuild->getOperand(i);
-        ss << "copy("
-           << "d1=" << registerAllocator_->getRegister(rebuild) + rebuild->getPlace(src) << ", "
-           << "r1=" << registerAllocator_->getRegister(src) + rebuild->getIndex(src) << ", "
-           << "vec=" << 1 << ", "
-           << "src_type=" << 1
-           << ")\n";
+        for (auto j = rebuild->getIndexBegin(src), k = rebuild->getPlaceBegin(src); j != rebuild->getIndexEnd(src); ++j, ++k) {
+            unsigned int index = *j, place = *k;
+            ss << "copy("
+               << "d1=" << registerAllocator_->getRegister(rebuild) + place << ", "
+               << "r1=" << registerAllocator_->getRegister(src) + index << ", "
+               << "vec=" << 1 << ", "
+               << "src_type=" << 1
+               << ")\n";
+        }
     }
     return ss.str();
 }

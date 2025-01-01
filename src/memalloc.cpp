@@ -44,11 +44,6 @@ void MemoryAllocator::memoryAllocation() {
                     partitioner_->cloneAssignment(load, seti);
                     load->addTileMemoryAddressOperand(seti);
                 }
-                if (VectorRebuildOperation* rebuild = dynamic_cast<VectorRebuildOperation*>(read)) {
-                    SetImmediateOperation* seti = new SetImmediateOperation(model_, address);
-                    partitioner_->cloneAssignment(rebuild, seti);
-                    rebuild->addTileMemoryAddressOperand(write, seti);
-                }
             }
         }
     }
