@@ -495,6 +495,7 @@ void Partitioner::insertLoadsAndStores() {
                         numStores_ += store->length();
                         cloneAssignment(producer, store);
                     }
+                    /* TODO This code is commented out because it need more debugging, right now we use a simpler but less efficient version
                     if (VectorRebuildOperation* vro = dynamic_cast<VectorRebuildOperation*>(consumer)) {
                         // We will generate a partial load operation to save memory for VectorRebuildOperation
                         // Therefore, we will not check if the load is already created.
@@ -508,7 +509,7 @@ void Partitioner::insertLoadsAndStores() {
                         }
                         // Create the load operation by range just found
                         LoadOperation* load = new LoadOperation(model_, store, true, start, end - start + 1);
-                        numLoads_ += load->getDataLength(); // length = length, but dataLength = 1, here we will store dataLength
+                        numLoads_ += load->getDataLength(); // length = length, but dataLength = end - start + 1, here we will store dataLength
                         cloneAssignment(vro, load);
                         vro->replaceOperand(producer, load);
                         vro->updatePlaceAndIndex(producer, load);
@@ -522,6 +523,17 @@ void Partitioner::insertLoadsAndStores() {
                             loads[getVCore(consumer)] = load;
                         }
                         consumer->replaceOperand(producer, loads[getVCore(consumer)]);
+                    }
+                    */
+                    if(loads[getVCore(consumer)] == NULL) {
+                        LoadOperation* load = new LoadOperation(model_, store);
+                        numLoads_ += load->length();
+                        cloneAssignment(consumer, load);
+                        loads[getVCore(consumer)] = load;
+                    }
+                    consumer->replaceOperand(producer, loads[getVCore(consumer)]);
+                    if (VectorRebuildOperation* vro = dynamic_cast<VectorRebuildOperation*>(consumer)) {
+                        vro->updatePlaceAndIndex(producer, loads[getVCore(consumer)]);
                     }
                 }
             }

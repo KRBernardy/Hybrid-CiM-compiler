@@ -40,7 +40,8 @@ void MemoryAllocator::memoryAllocation() {
             for(auto u = write->user_begin(); u != write->user_end(); ++u) {
                 TileMemoryReadOperation* read = *u;
                 if(LoadOperation* load = dynamic_cast<LoadOperation*>(read)) {
-                    SetImmediateOperation* seti = new SetImmediateOperation(model_, address);
+                    unsigned int address_bias = load->isPartial() ? load->getStart() : 0;
+                    SetImmediateOperation* seti = new SetImmediateOperation(model_, address + address_bias);
                     partitioner_->cloneAssignment(load, seti);
                     load->addTileMemoryAddressOperand(seti);
                 }

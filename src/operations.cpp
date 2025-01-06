@@ -743,7 +743,6 @@ VectorRebuildOperation::VectorRebuildOperation(ModelImpl* model, std::vector<Pro
 
 void VectorRebuildOperation::updatePlaceAndIndex(ProducerOperation* producer, LoadOperation* load) {
     assert(operandSet_.count(producer));
-    assert(load->isPartial());
     places_[load] = std::vector<unsigned int>(places_[producer].size());
     indices_[load] = std::vector<unsigned int>(indices_[producer].size());
     for (int i = 0; i < places_[producer].size(); ++i) {

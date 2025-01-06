@@ -17,7 +17,7 @@ struct CompilerOptions {
         enum GraphPartitioningScheme { GP_ROW_MAJOR, GP_COL_MAJOR, GP_KAHIP, GP_RANDOM };
 
         GraphPartitioningScheme gp_ = GP_ROW_MAJOR;
-        bool coalesceMVMOperations_ = true;
+        bool coalesceMVMOperations_ = false;
         bool printDebugInfo_ = true;
 
 };
@@ -277,7 +277,7 @@ ImagePixelStream conv2d_forward(ConvolutionalConstantMatrix Mparam, ImagePixelSt
 // TODO: Implement built-in flatten operation from pixel stream to vector
 Vector flatten(ImagePixelStream x);
 ImagePixelStream unflatten(Vector x, unsigned int imageWidth, unsigned int imageHeight, unsigned int nChannels);
-ImagePixelStream merge(std::vector<ImagePixelStream>& xs);
+ImagePixelStream merge(std::vector<ImagePixelStream>& streams);
 
 // Training matrix operations
 Vector operator*(TrainingMatrix M, Vector x);

@@ -251,7 +251,7 @@ std::string CodeGenerator::codegen(LoadOperation* load) {
     for(loadWidth = MAX_LOAD_STORE_WIDTH; !(load->getDataLength()%loadWidth == 0); --loadWidth);
     ss << "load("
        << "d1=" << registerAllocator_->getRegister(load) << ", "
-       << "r1=" << registerAllocator_->getRegister(load->getOperand(0)) + (load->isPartial() ? load->getStart() : 0) << ", "
+       << "r1=" << registerAllocator_->getRegister(load->getOperand(0)) << ", "
        << "load_width=" << loadWidth << ", "
        << "vec=" << load->getDataLength()/loadWidth
        << ")\n";
