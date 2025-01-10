@@ -15,6 +15,13 @@
 #include "placer.h"
 #include "tensors.h"
 
+#ifdef _WIN32
+#include <direct.h>
+#else
+#include <sys/stat.h>
+#include <errno.h>
+#endif
+
 ModelInstance ModelInstance::create(Model model) {
     ModelInstance instance;
     instance.impl_ = model.unwrap()->createInstance();
@@ -55,6 +62,15 @@ void ModelInstanceImpl::generateData() {
 
     std::cout << "Generating data files... " << std::flush;
 
+    // Generate a directory with model name
+    std::string dirName = model_->getName();
+
+    #ifdef _WIN32
+    _mkdir(dirName.c_str()); // Windows
+    #else
+    mkdir(dirName.c_str(), 0777); // Linux/Unix
+    #endif
+
     for(auto m = model_->const_mat_begin(); m != model_->const_mat_end(); ++m) {
         ConstantMatrixImpl* mat = *m;
         std::string matName = mat->name();
@@ -67,7 +83,7 @@ void ModelInstanceImpl::generateData() {
                 unsigned int pCore = placer_->getPCore(matTile);
                 unsigned int pMVMU = placer_->getPMVMU(matTile);
                 std::stringstream fileName;
-                fileName << model_->getName() << "-tile" << pTile << "-core" << pCore << "-mvmu" << pMVMU << ".weights";
+                fileName << dirName << "/" << model_->getName() << "-tile" << pTile << "-core" << pCore << "-mvmu" << pMVMU << ".weights";
                 std::ofstream mvmuData;
                 mvmuData.open(fileName.str());
                 for(unsigned int row = 0; row < MVMU_DIM; ++row) {
@@ -97,7 +113,7 @@ void ModelInstanceImpl::generateData() {
                         unsigned int pCore = placer_->getPCore(matTile);
                         unsigned int pMVMU = placer_->getPMVMU(matTile);
                         std::stringstream fileName;
-                        fileName << model_->getName() << "-tile" << pTile << "-core" << pCore << "-mvmu" << pMVMU << ".weights";
+                        fileName << dirName << "/" << model_->getName() << "-tile" << pTile << "-core" << pCore << "-mvmu" << pMVMU << ".weights";
                         std::ofstream mvmuData;
                         mvmuData.open(fileName.str());
                         for(unsigned int row = 0; row < MVMU_DIM; ++row) {

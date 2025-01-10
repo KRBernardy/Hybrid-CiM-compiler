@@ -21,6 +21,13 @@
 #include "placer.h"
 #include "regalloc.h"
 
+#ifdef _WIN32
+#include <direct.h>
+#else
+#include <sys/stat.h>
+#include <errno.h>
+#endif
+
 CodeGenerator::CodeGenerator(ModelImpl* model, Placer* placer, MemoryAllocator* memoryAllocator, Coalescer* coalescer, Linearizer* linearizer, RegisterAllocator* registerAllocator)
     : model_(model), placer_(placer), memoryAllocator_(memoryAllocator), coalescer_(coalescer), linearizer_(linearizer), registerAllocator_(registerAllocator)
 {
@@ -30,12 +37,20 @@ CodeGenerator::CodeGenerator(ModelImpl* model, Placer* placer, MemoryAllocator* 
 void CodeGenerator::codegen() {
 
     // TODO: Define ABI for laying out the binary
+    // Generate a directory with model name
+    std::string dirName = model_->getName();
+
+    #ifdef _WIN32
+    _mkdir(dirName.c_str()); // Windows
+    #else
+    mkdir(dirName.c_str(), 0777); // Linux/Unix
+    #endif
 
     for(unsigned int pTile = 0; pTile < placer_->getNPTiles(); ++pTile) {
 
         // Generate code for the tile
         std::stringstream fileName;
-        fileName << model_->getName() << "-tile" << pTile << ".puma";
+        fileName << dirName << "/" << model_->getName() << "-tile" << pTile << ".puma";
         std::ofstream tileCode;
         tileCode.open(fileName.str());
         std::list<TileOperation*>& tileOperationList = linearizer_->getTileOperationList(pTile);
@@ -58,7 +73,7 @@ void CodeGenerator::codegen() {
         // Generate code for each core in the tile
         for(unsigned int pCore = 0; pCore < N_CORES_PER_TILE; ++pCore) {
             std::stringstream fileName;
-            fileName << model_->getName() << "-tile" << pTile << "-core" << pCore << ".puma";
+            fileName << dirName << "/" << model_->getName() << "-tile" << pTile << "-core" << pCore << ".puma";
             std::ofstream coreCode;
             coreCode.open(fileName.str());
             std::list<CoreOperation*>& coreOperationList = linearizer_->getCoreOperationList(pTile, pCore);
