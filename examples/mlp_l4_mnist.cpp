@@ -80,28 +80,28 @@ int main() {
     //Reading weights from text files
     int i=0;
     std::ifstream wf1;
-    wf1.open("mlp_l4_mnist_weights/wl1.txt");
+    wf1.open("mlp_l4_mnist_weights/mlp_l4_mnist_quantized_fc1.txt");
     while(wf1 >> layer1Weights[i])
     { i++; }
     wf1.close();
 
     i=0;
     std::ifstream wf2;
-    wf2.open("mlp_l4_mnist_weights/wl2.txt");
+    wf2.open("mlp_l4_mnist_weights/mlp_l4_mnist_quantized_fc2.txt");
     while(wf2 >> layer2Weights[i])
     { i++; }
     wf2.close();
 
     i=0;
     std::ifstream wf3;
-    wf3.open("mlp_l4_mnist_weights/wl3.txt");
+    wf3.open("mlp_l4_mnist_weights/mlp_l4_mnist_quantized_fc3.txt");
     while(wf3 >> layer3Weights[i])
     { i++; }
     wf3.close();
 
     i=0;
     std::ifstream wf4;
-    wf4.open("mlp_l4_mnist_weights/wl4.txt");
+    wf4.open("mlp_l4_mnist_weights/mlp_l4_mnist_quantized_fc4.txt");
     while(wf4 >> layer4Weights[i])
     { i++; }
     wf4.close();
