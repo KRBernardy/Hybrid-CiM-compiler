@@ -244,7 +244,8 @@ std::string CodeGenerator::codegen(SetImmediateOperation* seti) {
     ss << "set("
        << "d1=" << registerAllocator_->getRegister(seti) << ", "
        << "imm=" << seti->getImmediate() << ", "
-       << "vec=" << seti->length()
+       << "vec=" << seti->length() << ", "
+       << "is_address=" << seti->isAddress()
        << ")\n";
     return ss.str();
 }

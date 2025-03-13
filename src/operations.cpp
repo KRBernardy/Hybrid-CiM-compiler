@@ -460,13 +460,18 @@ ImagePixelStream conv2d_forward(ConvolutionalConstantMatrix Mparam, ImagePixelSt
                             ProducerOperation* producer;
                             if (inputInBounds) {
                                 producer = new MVMOperation(model, mat, imageStream->get(hi, wi));
+                                if (accumIdx == 0) {
+                                    accumStreamOut->add(ho, wo, producer);
+                                } else {
+                                    accumStreamOut->add(ho, wo, new ALUVectorOperation(model, ALUVectorOperation::ADD, producer, accumStreamIn->get(ho, wo)));
+                                }
                             } else {
-                                producer = new SetImmediateOperation(model, 0, mat->height()); // Use 0 for input padding
-                            }
-                            if (accumIdx == 0) {
-                                accumStreamOut->add(ho, wo, producer);
-                            } else {
-                                accumStreamOut->add(ho, wo, new ALUVectorOperation(model, ALUVectorOperation::ADD, producer, accumStreamIn->get(ho, wo)));
+                                // Use 0 for input padding
+                                if (accumIdx == 0) {
+                                    accumStreamOut->add(ho, wo, new SetImmediateOperation(model, 0, mat->height()));
+                                } else {
+                                    accumStreamOut->add(ho, wo, accumStreamIn->get(ho, wo));
+                                }
                             }
                         }
                     }
@@ -689,7 +694,7 @@ ALUVectorOperation::ALUVectorOperation(ModelImpl* model, OpCode opCode, Producer
     assert(src1 != NULL);
 }
 
-SetImmediateOperation::SetImmediateOperation(ModelImpl* model, unsigned int imm, unsigned int length) : Operation(model, length), imm_(imm) {
+SetImmediateOperation::SetImmediateOperation(ModelImpl* model, unsigned int imm, unsigned int length, bool address) : Operation(model, length), imm_(imm), isAddress_(address) {
 }
 
 CopyOperation::CopyOperation(ModelImpl* model, ProducerOperation* src, bool partial, unsigned int start, unsigned int dataLength)

@@ -362,7 +362,7 @@ void RegisterAllocator::allocateDataRegisters(unsigned int pTile, unsigned int p
                                 // Reload from spilled register
                                 numSpilledRegAccesses_ += producer->length();
                                 StoreOperation* spillOp = spillTracker.getSpillOperation(producer);
-                                SetImmediateOperation* seti = new SetImmediateOperation(model_, memoryAllocator_->getTileMemoryAddress(spillOp));
+                                SetImmediateOperation *seti = new SetImmediateOperation(model_, memoryAllocator_->getTileMemoryAddress(spillOp), 1, true);
                                 partitioner_->cloneAssignment(producer, seti);
                                 assignRegister(seti, spillAddressReg);
                                 LoadOperation* load = new LoadOperation(model_, spillOp);
@@ -474,7 +474,7 @@ unsigned int RegisterAllocator::allocateRegistersWithSpilling(unsigned int lengt
         for(ProducerOperation* spillCandidate : liveNow) {
             if(consumer == NULL || !consumer->uses(spillCandidate)) {
                 unsigned int address = memoryAllocator_->memalloc(partitioner_->getVTile(spillCandidate), spillCandidate->length());
-                SetImmediateOperation* setiStore = new SetImmediateOperation(model_, address);
+                SetImmediateOperation *setiStore = new SetImmediateOperation(model_, address, 1, true);
                 partitioner_->cloneAssignment(spillCandidate, setiStore);
                 assignRegister(setiStore, spillAddressReg);
                 StoreOperation* store = new StoreOperation(model_, spillCandidate);

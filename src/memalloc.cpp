@@ -33,7 +33,7 @@ void MemoryAllocator::memoryAllocation() {
             unsigned int address = memalloc(partitioner_->getVTile(write), write->getDataLength());
             assignTileMemoryAddress(write, address);
             if(StoreOperation* store = dynamic_cast<StoreOperation*>(write)) {
-                SetImmediateOperation* seti = new SetImmediateOperation(model_, address);
+                SetImmediateOperation* seti = new SetImmediateOperation(model_, address, 1, true);
                 partitioner_->cloneAssignment(store, seti);
                 store->addTileMemoryAddressOperand(seti);
             }
@@ -41,7 +41,7 @@ void MemoryAllocator::memoryAllocation() {
                 TileMemoryReadOperation* read = *u;
                 if(LoadOperation* load = dynamic_cast<LoadOperation*>(read)) {
                     unsigned int address_bias = load->isPartial() ? load->getStart() : 0;
-                    SetImmediateOperation* seti = new SetImmediateOperation(model_, address + address_bias);
+                    SetImmediateOperation *seti = new SetImmediateOperation(model_, address + address_bias, 1, true);
                     partitioner_->cloneAssignment(load, seti);
                     load->addTileMemoryAddressOperand(seti);
                 }

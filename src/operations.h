@@ -313,12 +313,14 @@ class SetImmediateOperation : public ProducerOperation, public CoreOperation {
     protected:
 
         unsigned int imm_;
+        bool isAddress_;
 
     public:
 
-        SetImmediateOperation(ModelImpl* model, unsigned int imm, unsigned int length=1);
+        SetImmediateOperation(ModelImpl* model, unsigned int imm, unsigned int length=1, bool address=false);
 
         unsigned int getImmediate() { return imm_; }
+        bool isAddress() { return isAddress_; }
 
         std::string printOperationType();
         void printNodeAndEdges(std::ostream& fout) { ProducerOperation::printNodeAndEdges(fout); }
