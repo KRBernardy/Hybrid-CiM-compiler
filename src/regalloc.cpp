@@ -458,6 +458,69 @@ unsigned int RegisterAllocator::allocateRegistersWithSpilling(unsigned int lengt
         return reg;
     } else {
         // First try to free registers by killing live reloads that are not used by this operation
+        auto killCandidate = spillTracker.reloads_begin();
+        while (killCandidate != spillTracker.reloads_end())
+        {
+            ProducerOperation *producerToKill = killCandidate->first;
+            LoadOperation *reloadToKill = killCandidate->second;
+            if (consumer == NULL || !consumer->uses(producerToKill) && !consumer->uses(reloadToKill))
+            {
+                // Save iterator to current element
+                auto current = killCandidate;
+                // Advance iterator before removing element
+                ++killCandidate;
+                // Now safe to remove the element
+                spillTracker.killLiveNowReload(reloadToKill);
+                allocator.free(getRegister(reloadToKill), reloadToKill->length());
+                reg = allocator.allocate(length);
+                if (reg != CoreAllocator::OUT_OF_REGISTERS)
+                {
+                    return reg;
+                }
+            }
+            else
+            {
+                ++killCandidate;
+            }
+        }
+        // If unable to kill enough reloads, then spill live operations that are not used by this operation
+        auto spillCandidate = liveNow.begin();
+        while (spillCandidate != liveNow.end())
+        {
+            ProducerOperation *toSpill = *spillCandidate;
+            if (consumer == NULL || !consumer->uses(toSpill))
+            {
+                // Advance iterator BEFORE modifying the container
+                ++spillCandidate;
+
+                unsigned int address = memoryAllocator_->memalloc(partitioner_->getVTile(toSpill), toSpill->length());
+                SetImmediateOperation *setiStore = new SetImmediateOperation(model_, address, 1, true);
+                partitioner_->cloneAssignment(toSpill, setiStore);
+                assignRegister(setiStore, spillAddressReg);
+                StoreOperation *store = new StoreOperation(model_, toSpill);
+                numStoresFromSpilling_ += store->length();
+                partitioner_->cloneAssignment(toSpill, store);
+                memoryAllocator_->assignTileMemoryAddress(store, address);
+                store->addTileMemoryAddressOperand(setiStore);
+                coreOperationList.insert(op, setiStore);
+                coreOperationList.insert(op, store);
+                liveNow.erase(toSpill);
+                spillTracker.setSpillOperation(toSpill, store);
+                allocator.free(getRegister(toSpill), toSpill->length());
+                reg = allocator.allocate(length);
+                if (reg != CoreAllocator::OUT_OF_REGISTERS)
+                {
+                    return reg;
+                }
+            }
+            else
+            {
+                // Only increment iterator if we didn't modify the container
+                ++spillCandidate;
+            }
+        }
+        /*
+        // First try to free registers by killing live reloads that are not used by this operation
         for(auto killCandidate = spillTracker.reloads_begin(); killCandidate != spillTracker.reloads_end(); ++killCandidate) {
             ProducerOperation* producerToKill = killCandidate->first;
             LoadOperation* reloadToKill = killCandidate->second;
@@ -493,6 +556,7 @@ unsigned int RegisterAllocator::allocateRegistersWithSpilling(unsigned int lengt
                 }
             }
         }
+        */
         // If unable to spill enough live operations, then fail
         assert(0 && "Register allocation error: cannot find enough registers to spill!");
     }
