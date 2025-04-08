@@ -7,6 +7,9 @@
  */
 
 #include "common.h"
+#include <nlohmann/json.hpp>
+
+using json = nlohmann::json;
 
 class CodeGenerator {
 
@@ -20,6 +23,7 @@ class CodeGenerator {
         RegisterAllocator* registerAllocator_;
 
         void codegen();
+        json jsonGen();
         std::string codegen(CoalescedMVMSet* coalescedMVMSet);
         std::string codegen(CoalescedTrainingOperationSet* coalescedTrainingOperationSet);
         std::string codegen(MVMOperation* mvm);
@@ -34,6 +38,20 @@ class CodeGenerator {
         std::string codegen(WriteInputOperation* write);
         std::string codegen(ReadOutputOperation* read);
         std::string codegen(VectorRebuildOperation* rebuild);
+        json jsonGen(CoalescedMVMSet *coalescedMVMSet, int tileID, int coreID);
+        json jsonGen(CoalescedTrainingOperationSet *coalescedTrainingOperationSet, int tileID, int coreID);
+        json jsonGen(MVMOperation *mvm, int tileID, int coreID);
+        json jsonGen(TrainingMatrixOperation *trainOp, int tileID, int coreID);
+        json jsonGen(ALUVectorOperation *aluOp, int tileID, int coreID);
+        json jsonGen(SetImmediateOperation *seti, int tileID, int coreID);
+        json jsonGen(CopyOperation *copy, int tileID, int coreID);
+        json jsonGen(LoadOperation *load, int tileID, int coreID);
+        json jsonGen(StoreOperation *store, int tileID, int coreID);
+        json jsonGen(SendOperation *send, int tileID);
+        json jsonGen(ReceiveOperation *recv, int tileID);
+        json jsonGen(WriteInputOperation *write, int tileID);
+        json jsonGen(ReadOutputOperation *read, int tileID);
+        json jsonGen(VectorRebuildOperation *rebuild, int tileID, int coreID);
 
     public:
 
