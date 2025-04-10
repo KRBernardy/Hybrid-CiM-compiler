@@ -202,10 +202,7 @@ json CodeGenerator::jsonGen(CoalescedMVMSet* coalescedMVMSet, int tileID, int co
     j["xbar"] = json::array();
     for(unsigned int i = 0; i < N_CONSTANT_MVMUS_PER_CORE; ++i) {
         if (coalescedMVMSet->usesPMVMU(i)) {
-            json xbar = json::array();
-            xbar.push_back(i);
-            xbar.push_back("f");
-            j["xbar"].push_back(xbar);
+            j["xbar"].push_back(i);
         }
     }
     return j;
@@ -270,10 +267,7 @@ json CodeGenerator::jsonGen(MVMOperation *mvm, int tileID, int coreID) {
     j["xbar"] = json::array();
     for (unsigned int i = 0; i < N_CONSTANT_MVMUS_PER_CORE; ++i) {
         if (i == placer_->getPMVMU(mvm)) {
-            json xbar = json::array();
-            xbar.push_back(i);
-            xbar.push_back("f");
-            j["xbar"].push_back(xbar);
+            j["xbar"].push_back(i);
         }
     }
     return j;
@@ -416,6 +410,8 @@ std::string CodeGenerator::codegen(SetImmediateOperation* seti) {
 json CodeGenerator::jsonGen(SetImmediateOperation *seti, int tileID, int coreID) {
     json j;
     j["type"] = "set";
+    j["tile"] = tileID;
+    j["core"] = coreID;
     j["dest"] = registerAllocator_->getRegister(seti);
     j["imm"] = seti->getImmediate();
     j["vec"] = seti->length();
@@ -437,6 +433,8 @@ std::string CodeGenerator::codegen(CopyOperation *copy) {
 json CodeGenerator::jsonGen(CopyOperation *copy, int tileID, int coreID) {
     json j;
     j["type"] = "copy";
+    j["tile"] = tileID;
+    j["core"] = coreID;
     j["dest"] = registerAllocator_->getRegister(copy);
     j["read"] = registerAllocator_->getRegister(copy->getOperand(0));
     j["vec"] = copy->length();
