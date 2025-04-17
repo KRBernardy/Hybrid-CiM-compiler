@@ -353,7 +353,7 @@ std::string CodeGenerator::codegen(ALUVectorOperation* aluOp) {
 
 json CodeGenerator::jsonGen(ALUVectorOperation *aluOp, int tileID, int coreID) {
     json j;
-    j["type"] = "alu";
+    j["type"] = "vfu";
     j["tile"] = tileID;
     j["core"] = coreID;
     switch (aluOp->getOpCode()) {
