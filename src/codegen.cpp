@@ -168,7 +168,12 @@ json CodeGenerator::jsonGen() {
                 else
                     assert(0 && "Unsupported operation for JSON generation!");
                 if (temp != json()) {
-                    j.push_back(temp);
+                    if (temp.is_array()) {
+                        for (auto &elem : temp) {
+                            j.push_back(elem);
+                        }
+                    }
+                    else j.push_back(temp);
                 }
             }
             json hlt;
@@ -226,6 +231,30 @@ std::string CodeGenerator::codegen(CoalescedTrainingOperationSet* coalescedTrain
     }
     ss << "])\n";
     return ss.str();
+}
+
+json CodeGenerator::jsonGen(CoalescedTrainingOperationSet *coalescedTrainingOperationSet, int tileID, int coreID)
+{
+    json j;
+    j["type"] = "train";
+    j["tile"] = tileID;
+    j["core"] = coreID;
+    j["xbar"] = json::array();
+    for (unsigned int pMVMU = 0; pMVMU < N_TRAINING_MVMUS_PER_CORE; ++pMVMU)
+    {
+        json opArray = json::array();
+        for (unsigned int t = 0; t < N_TRAINING_OPERATIONS; ++t) {
+            TrainingMatrixOperation::OpType opType = (TrainingMatrixOperation::OpType)t;
+            if (coalescedTrainingOperationSet->usesPMVMUForOp(pMVMU, opType)) {
+                opArray.push_back(1);
+            }
+            else {
+                opArray.push_back(0);
+            }
+        }
+        j["xbar"].push_back(opArray);
+    }
+    return j;
 }
 
 std::string CodeGenerator::codegen(MVMOperation* mvm) {
@@ -299,6 +328,39 @@ std::string CodeGenerator::codegen(TrainingMatrixOperation* trainOp) {
         ss << "])\n";
         return ss.str();
     }
+}
+
+json CodeGenerator::jsonGen(TrainingMatrixOperation *trainOp, int tileID, int coreID)
+{
+    CoalescedTrainingOperationSet *coalescedTrainingOperationSet = trainOp->getCoalescedSet();
+    if (coalescedTrainingOperationSet != NULL)
+    {
+        if (coalescedTrainingOperationSet->isSetLeader(trainOp)) { // Only one training operation in a coalesced set does code generation on behalf of the others
+            return jsonGen(coalescedTrainingOperationSet, tileID, coreID);
+        }
+        else {
+            return json();
+        }
+    }
+    json j;
+    j["type"] = "train";
+    j["tile"] = tileID;
+    j["core"] = coreID;
+    j["xbar"] = json::array();
+    for (unsigned int pMVMU = 0; pMVMU < N_TRAINING_MVMUS_PER_CORE; ++pMVMU) {
+        json opArray = json::array();
+        for (unsigned int t = 0; t < N_TRAINING_OPERATIONS; ++t) {
+            TrainingMatrixOperation::OpType opType = (TrainingMatrixOperation::OpType)t;
+            if (pMVMU == placer_->getPMVMU(trainOp) && opType == trainOp->getOpType()) {
+                opArray.push_back(1);
+            }
+            else {
+                opArray.push_back(0);
+            }
+        }
+        j["xbar"].push_back(opArray);
+    }
+    return j;
 }
 
 std::string CodeGenerator::codegen(ALUVectorOperation* aluOp) {
