@@ -41,6 +41,7 @@ class RegisterAllocator {
         void allocateReservedInputRegisters(unsigned int pTile, unsigned int pCore);
         void allocateReservedOutputRegisters(unsigned int pTile, unsigned int pCore);
         void allocateDataRegisters(unsigned int pTile, unsigned int pCore);
+        void allocateStorageRegisters(unsigned int pTile, unsigned int pCore);
         unsigned int allocateRegistersWithSpilling(unsigned int length, CoreAllocator& allocator, std::set<ProducerOperation*>& liveNow, SpillTracker& spillTracker, unsigned int spillAddressReg, std::list<CoreOperation*>& coreOperationList, std::list<CoreOperation*>::iterator& op);
 
     public:

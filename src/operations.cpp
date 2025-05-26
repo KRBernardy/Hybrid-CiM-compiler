@@ -53,6 +53,17 @@ Vector::Vector(InputVector xparam) {
     impl_ = y;
 }
 
+Vector::Vector(ConstantVector xparam) {
+    ConstantVectorImpl* x = xparam.unwrap();
+    VectorImpl* y = new VectorImpl(x->getModel(), x->length());
+    y->checkCompatibility(x);
+    for(unsigned int t = 0; t < x->nTiles(); ++t) {
+        ProducerOperation* producer = new ConstantVectorOperation(x->getModel(), x->getTile(t));
+        y->setTile(t, producer);
+    }
+    impl_ = y;
+}
+
 ImagePixelStream::ImagePixelStream(InputImagePixelStream xsparam) {
     InputImagePixelStreamImpl* xs = xsparam.unwrap();
     ImagePixelStreamImpl* ys = new ImagePixelStreamImpl(xs->getModel(), xs->imageWidth(), xs->imageHeight(), xs->nChannels());
@@ -305,8 +316,7 @@ ImagePixelStream avgpool(ImagePixelStream xsparam, unsigned int hspan, unsigned 
                     accum[ho][wo][accumIdx] = new ALUVectorOperation(accum[ho][wo][accumIdx - 1]->getModel(), ALUVectorOperation::ADD, accum[ho][wo][accumIdx - 1], xTile);
                 }
                 if((hh == hspan - 1 || hi == xs->imageHeight() - 1) && (ww == wspan - 1 || wi == xs->imageWidth() - 1)) {
-                    SetImmediateOperation* num = new SetImmediateOperation(accum[ho][wo][accumIdx]->getModel(), 1.0 / ((hh + 1) * (ww + 1)), accum[ho][wo][accumIdx]->length());
-                    ysTile->add(ho, wo, new ALUVectorOperation(accum[ho][wo][accumIdx]->getModel(), ALUVectorOperation::MUL, accum[ho][wo][accumIdx], num));
+                    ysTile->add(ho, wo, new ALUVectorOperation(accum[ho][wo][accumIdx]->getModel(), ALUVectorOperation::MULI, accum[ho][wo][accumIdx], 1.0 / ((hh + 1) * (ww + 1))));
                 }
             }
         }
@@ -480,6 +490,37 @@ ImagePixelStream conv2d_forward(ConvolutionalConstantMatrix Mparam, ImagePixelSt
         }
     }
     return ImagePixelStream(ys[kernelHeight * kernelWidth * nInChannelTiles - 1]);
+}
+
+ImagePixelStream batchnorm(ImagePixelStream xsparam, BatchNormParam bnparam) {
+    ImagePixelStreamImpl* xs = xsparam.unwrap();
+    BatchNormParamImpl* bn = bnparam.unwrap();
+    bn->checkCompatibility(xs);
+    ModelImpl* model = xs->getModel();
+    ImagePixelStreamImpl* ys = new ImagePixelStreamImpl(model, xs->imageWidth(), xs->imageHeight(), xs->nChannels());
+    ConstantVectorImpl *mean = bn->getMean();
+    ConstantVectorImpl* variance = bn->getVariance();
+    ConstantVectorImpl* weight = bn->getWeight();
+    ConstantVectorImpl* bias = bn->getBias();
+    for(unsigned int t = 0; t < xs->nTiles(); ++t) {
+        ImagePixelStreamTile* xsTile = xs->getTile(t);
+        ImagePixelStreamTile* ysTile = ys->getTile(t);
+        ConstantVectorOperation *mean_tile = new ConstantVectorOperation(model, mean->getTile(t));
+        ConstantVectorOperation *variance_tile = new ConstantVectorOperation(model, variance->getTile(t));
+        ConstantVectorOperation *weight_tile = new ConstantVectorOperation(model, weight->getTile(t));
+        ConstantVectorOperation *bias_tile = new ConstantVectorOperation(model, bias->getTile(t));
+        for (unsigned int h = 0; h < xs->imageHeight(); ++h) {
+            for (unsigned int w = 0; w < xs->imageWidth(); ++w) {
+                ProducerOperation* x = xsTile->get(h, w);
+                ProducerOperation* out_1 = new ALUVectorOperation(model, ALUVectorOperation::SUB, x, mean_tile);
+                ProducerOperation* out_2 = new ALUVectorOperation(model, ALUVectorOperation::DIV, out_1, variance_tile);
+                ProducerOperation* out_3 = new ALUVectorOperation(model, ALUVectorOperation::MUL, out_2, weight_tile);
+                ProducerOperation* out_4 = new ALUVectorOperation(model, ALUVectorOperation::ADD, out_3, bias_tile);
+                ysTile->add(h, w, out_4);
+            }
+        }
+    }
+    return ImagePixelStream(ys);
 }
 
 Vector flatten(ImagePixelStream x) {
@@ -667,7 +708,10 @@ TrainingMatrixOperation::TrainingMatrixOperation(ModelImpl* model, TrainingMatri
 }
 
 ALUVectorOperation::ALUVectorOperation(ModelImpl* model, OpCode opCode, ProducerOperation* src1, ProducerOperation* src2) : Operation(model, src1->length()), ConsumerOperation(src1, src2), opCode_(opCode), imm_(0.0f) {
-    assert(!isImmediate());
+    if (isImmediate()) {
+        assert(src2 != NULL);
+        assert(src2->length() == 1);
+    }
     assert(src1 != NULL);
     switch(opCode_) {
         case ADD:
@@ -763,6 +807,10 @@ PseudoInputOperation::PseudoInputOperation(ModelImpl* model, InputVectorTile* sr
 
 PseudoOutputOperation::PseudoOutputOperation(ModelImpl* model, ProducerOperation* op, OutputVectorTile* dst) : Operation(model, op->length()), ConsumerOperation(op), OutputOperation(dst) {
     assert(op != NULL && op->length() == dst->length());
+}
+
+ConstantVectorOperation::ConstantVectorOperation(ModelImpl* model, ConstantVectorTile* src) : Operation(model, src->length()), vec_(src) {
+    assert(src != NULL);
 }
 
 void LoadOperation::addTileMemoryAddressOperand(ProducerOperation* address) {
@@ -999,7 +1047,10 @@ std::string ALUVectorOperation::printOperationType() {
         case SUB: return "SUB";
         case MUL: return "MUL";
         case DIV: return "DIV";
+        case ADDI: return "ADDI";
+        case SUBI: return "SUBI";
         case MULI: return "MULI";
+        case DIVI: return "DIVI";
         case AND: return "AND";
         case OR: return "OR";
         case NOT: return "NOT";
@@ -1070,6 +1121,10 @@ std::string PseudoOutputOperation::printOperationType() {
     return "PseudoOutput";
 }
 
+std::string ConstantVectorOperation::printOperationType() {
+    return "ConstantVector";
+}
+
 void Operation::printNodeAndEdges(std::ostream& fout) {
     fout << printNodeName() << " " << printNodeStyle() << ";" << std::endl;
 }
@@ -1128,3 +1183,7 @@ void PseudoOutputOperation::printNodeAndEdges(std::ostream& fout) {
     OutputOperation::printNodeAndEdges(fout);
 }
 
+void ConstantVectorOperation::printNodeAndEdges(std::ostream& fout) {
+    Operation::printNodeAndEdges(fout);
+    fout << printNodeName() << " -> " << vec_->printNodeName() << ";" << std::endl;
+}

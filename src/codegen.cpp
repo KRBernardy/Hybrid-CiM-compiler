@@ -106,6 +106,9 @@ void CodeGenerator::codegen() {
                     coreCode << codegen(store);
                 } else if(VectorRebuildOperation* rebuild = dynamic_cast<VectorRebuildOperation*>(coreOp)) {
                     coreCode << codegen(rebuild);
+                } else if(ConstantVectorOperation* constVec = dynamic_cast<ConstantVectorOperation*>(coreOp)) {
+                    // No code generation for constant vector operations
+                    continue;
                 } else {
                     assert(0 && "Unsupported operation for code generation!");
                 }
@@ -165,6 +168,10 @@ json CodeGenerator::jsonGen() {
                     temp = jsonGen(store, pTile, pCore);
                 else if (VectorRebuildOperation *rebuild = dynamic_cast<VectorRebuildOperation *>(coreOp))
                     temp = jsonGen(rebuild, pTile, pCore);
+                else if (ConstantVectorOperation *constVec = dynamic_cast<ConstantVectorOperation *>(coreOp)) {
+                    // No JSON generation for constant vector operations
+                    temp = json();
+                }
                 else
                     assert(0 && "Unsupported operation for JSON generation!");
                 if (temp != json()) {
@@ -415,7 +422,17 @@ std::string CodeGenerator::codegen(ALUVectorOperation* aluOp) {
 
 json CodeGenerator::jsonGen(ALUVectorOperation *aluOp, int tileID, int coreID) {
     json j;
-    j["type"] = "vfu";
+    switch (aluOp->getOpCode()) {
+        case ALUVectorOperation::ADDI:
+        case ALUVectorOperation::SUBI:
+        case ALUVectorOperation::MULI:
+        case ALUVectorOperation::DIVI:
+            j["type"] = "vfu_i";
+            break;
+        default:
+            j["type"] = "vfu";
+            break;
+    }
     j["tile"] = tileID;
     j["core"] = coreID;
     switch (aluOp->getOpCode()) {

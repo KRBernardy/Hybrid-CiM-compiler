@@ -30,6 +30,7 @@ class ModelImpl {
         std::vector<ImagePixelStreamImpl*> imagePixelStreams_;
         std::vector<OutputVectorImpl*> outputVectors_;
         std::vector<OutputImagePixelStreamImpl*> outputImagePixelStreams_;
+        std::vector<ConstantVectorImpl*> ConstantVectors_;
         std::vector<ConstantMatrixImpl*> constantMatrices_;
         std::vector<ConvolutionalConstantMatrixImpl*> convolutionMatrices_;
         std::vector<TrainingMatrixImpl*> trainingMatrices_;
@@ -60,6 +61,7 @@ class ModelImpl {
         void addImagePixelStreamImpl(ImagePixelStreamImpl* stream);
         void addOutputVectorImpl(OutputVectorImpl* vec);
         void addOutputImagePixelStreamImpl(OutputImagePixelStreamImpl* stream);
+        void addConstantVectorImpl(ConstantVectorImpl* vec);
         void addConstantMatrixImpl(ConstantMatrixImpl* mat);
         void addConvolutionalConstantMatrixImpl(ConvolutionalConstantMatrixImpl* mat);
         void addTrainingMatrixImpl(TrainingMatrixImpl* mat);

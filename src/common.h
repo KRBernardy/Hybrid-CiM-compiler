@@ -26,6 +26,8 @@
 #define REGISTER_FILE_START_ADDRESS     (OUTPUT_REGISTERS_START_ADDRESS + N_OUTPUT_REGISTERS)
 #define REGISTER_FILE_SIZE              4096
 #define REGISTERS_PER_CORE              (N_INPUT_REGISTERS + N_OUTPUT_REGISTERS + REGISTER_FILE_SIZE)
+#define N_STORAGE_REGISTERS             1024
+#define STORAGE_REGISTERS_START_ADDRESS (REGISTER_FILE_START_ADDRESS + REGISTER_FILE_SIZE)
 
 /* tensors.h */
 class AbstractTensor;
@@ -36,6 +38,8 @@ class InputVectorTile;
 class InputVectorImpl;
 class InputImagePixelStreamImpl;
 class VectorImpl;
+class ConstantVectorTile;
+class ConstantVectorImpl;
 class ImagePixelStreamImpl;
 class OutputVectorTile;
 class OutputVectorImpl;
@@ -45,6 +49,7 @@ class ConstantMatrixImpl;
 class ConvolutionalConstantMatrixImpl;
 class TrainingMatrixTile;
 class TrainingMatrixImpl;
+class BatchNormParamImpl;
 
 /* operations.h */
 class Operation;

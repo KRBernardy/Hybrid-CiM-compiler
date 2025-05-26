@@ -180,6 +180,36 @@ class VectorImpl : public AbstractVector {
 
 };
 
+class ConstantVectorTile : public AbstractVector {
+
+    protected:
+
+        std::vector<ConsumerOperation*> users_;
+
+    public:
+
+        ConstantVectorTile(ModelImpl* model, unsigned int length) : AbstractVector(model, "", length) { }
+        void addUser(ConsumerOperation* user) { users_.push_back(user); }
+        unsigned int numUsers() { return users_.size(); }
+
+        std::string printTensorType();
+
+};
+
+class ConstantVectorImpl : public AbstractVector {
+
+    protected:
+        std::vector<ConstantVectorTile*> tiles_;
+
+    public:
+        ConstantVectorImpl(ModelImpl *model, std::string name, unsigned int length);
+
+        unsigned int nTiles() { return (length_ - 1) / MVMU_DIM + 1; }
+        ConstantVectorTile *getTile(unsigned int t) { return tiles_[t]; }
+
+        std::string printTensorType();
+};
+
 class ImagePixelStreamTile : public AbstractImagePixelStream {
 
     protected:
@@ -193,7 +223,7 @@ class ImagePixelStreamTile : public AbstractImagePixelStream {
         void add(unsigned int h, unsigned int w, ProducerOperation* vec);
         ProducerOperation* get(unsigned int h, unsigned int w);
 
-        std::string printTensorType();
+        std::string printTensorType(); 
 
 };
 
@@ -392,3 +422,29 @@ class TrainingMatrixImpl : public AbstractMatrix {
 
 };
 
+class BatchNormParamImpl : public AbstractTensor {
+
+    protected:
+
+        unsigned int nChannels_;
+        ConstantVectorImpl* weights_;
+        ConstantVectorImpl* biases_;
+        ConstantVectorImpl* means_;
+        ConstantVectorImpl* variances_;
+
+    public:
+
+        BatchNormParamImpl(ModelImpl* model, std::string name, unsigned int nChannels);
+        ~BatchNormParamImpl();
+
+        unsigned int nChannels() { return nChannels_; }
+        ConstantVectorImpl *getWeight() { return weights_; }
+        ConstantVectorImpl *getBias() { return biases_; }
+        ConstantVectorImpl *getMean() { return means_; }
+        ConstantVectorImpl *getVariance() { return variances_; }
+
+        void checkCompatibility(AbstractImagePixelStream* vs);
+
+        std::string printTensorType();
+
+};

@@ -19,5 +19,13 @@ static ImagePixelStream conv2d(Model model, std::string layerName, const unsigne
 
 }
 
+static ImagePixelStream batchnorm2d(Model model, std::string layerName, ImagePixelStream in_stream, unsigned int n_channels) {
+
+    BatchNormParam param = BatchNormParam::create(model, layerName + "param", n_channels);
+
+    return batchnorm(in_stream, param);
+
+}
+
 #endif
 

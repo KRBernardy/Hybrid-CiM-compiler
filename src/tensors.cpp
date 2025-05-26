@@ -37,6 +37,12 @@ OutputImagePixelStream OutputImagePixelStream::create(Model model, std::string n
     return stream;
 }
 
+ConstantVector ConstantVector::create(Model model, std::string name, unsigned int length) {
+    ConstantVector vec;
+    vec.impl_ = new ConstantVectorImpl(model.unwrap(), name, length);
+    return vec;
+}
+
 ConstantMatrix ConstantMatrix::create(Model model, std::string name, unsigned int width, unsigned int height) {
     ConstantMatrix m;
     m.impl_ = new ConstantMatrixImpl(model.unwrap(), name, width, height);
@@ -52,6 +58,12 @@ ConvolutionalConstantMatrix ConvolutionalConstantMatrix::create(Model model, std
 TrainingMatrix TrainingMatrix::create(Model model, std::string name, unsigned int width, unsigned int height) {
     TrainingMatrix m;
     m.impl_ = new TrainingMatrixImpl(model.unwrap(), name, width, height);
+    return m;
+}
+
+BatchNormParam BatchNormParam::create(Model model, std::string name, unsigned int nChannels) {
+    BatchNormParam m;
+    m.impl_ = new BatchNormParamImpl(model.unwrap(), name, nChannels);
     return m;
 }
 
@@ -87,6 +99,10 @@ OutputImagePixelStreamImpl* OutputImagePixelStream::unwrap() {
     return impl_;
 }
 
+ConstantVectorImpl* ConstantVector::unwrap() {
+    return impl_;
+}
+
 VectorImpl* Vector::unwrap() {
     return impl_;
 }
@@ -109,6 +125,10 @@ TrainingMatrixImpl* TrainingMatrix::unwrap() {
 
 TrainingMatrixImpl* Transpose::unwrap() {
     return m_;
+}
+
+BatchNormParamImpl* BatchNormParam::unwrap() {
+    return impl_;
 }
 
 VectorImpl* OuterProduct::unwrap1() {
@@ -268,10 +288,33 @@ TrainingMatrixImpl::TrainingMatrixImpl(ModelImpl* model, std::string name, unsig
     model->addTrainingMatrixImpl(this);
 }
 
-VectorImpl::VectorImpl(ModelImpl* model, unsigned int length)
-    : AbstractVector(model, "", length), tiles_((length - 1)/MVMU_DIM + 1)
+BatchNormParamImpl::BatchNormParamImpl(ModelImpl *model, std::string name, unsigned int nChannels)
+    : AbstractTensor(model, name), nChannels_(nChannels)
+{
+    weights_ = new ConstantVectorImpl(model, name + "_weights", nChannels);
+    biases_ = new ConstantVectorImpl(model, name + "_biases", nChannels);
+    means_ = new ConstantVectorImpl(model, name + "_means", nChannels);
+    variances_ = new ConstantVectorImpl(model, name + "_variances", nChannels);
+
+}
+
+VectorImpl::VectorImpl(ModelImpl *model, unsigned int length)
+    : AbstractVector(model, "", length), tiles_((length - 1) / MVMU_DIM + 1)
 {
     model->addVectorImpl(this);
+}
+
+ConstantVectorImpl::ConstantVectorImpl(ModelImpl *model, std::string name, unsigned int length)
+    : AbstractVector(model, name, length), tiles_((length - 1) / MVMU_DIM + 1)
+{
+    model->addConstantVectorImpl(this);
+    for (unsigned int i = 0; i < nTiles(); ++i) {
+        unsigned int tileSize = MVMU_DIM;
+        if(i == nTiles() - 1 && length%MVMU_DIM > 0) {
+            tileSize = length%MVMU_DIM;
+        }
+        tiles_[i] = new ConstantVectorTile(model, tileSize);
+    }
 }
 
 ImagePixelStreamTile::ImagePixelStreamTile(ModelImpl* model, unsigned int imageWidth, unsigned int imageHeight, unsigned int nChannels)
@@ -333,6 +376,11 @@ void TrainingMatrixImpl::checkCompatibilityForOuterProductAccumulate(AbstractVec
 void ConvolutionalConstantMatrixImpl::checkCompatibility(AbstractImagePixelStream* vs) {
     assert(model_ == vs->getModel());
     assert(nInChannels_ == vs->nChannels());
+}
+
+void BatchNormParamImpl::checkCompatibility(AbstractImagePixelStream* vs) {
+    assert(model_ == vs->getModel());
+    assert(nChannels_ == vs->nChannels());
 }
 
 InputVectorTile* InputVectorImpl::getTile(unsigned int t) {
@@ -544,6 +592,14 @@ std::string VectorImpl::printTensorType() {
     return "Vector";
 }
 
+std::string ConstantVectorTile::printTensorType() {
+    return "ConstantVectorTile";
+}
+
+std::string ConstantVectorImpl::printTensorType() {
+    return "ConstantVector";
+}
+
 std::string ImagePixelStreamTile::printTensorType() {
     return "ImagePixelStreamTile";
 }
@@ -586,6 +642,10 @@ std::string TrainingMatrixTile::printTensorType() {
 
 std::string TrainingMatrixImpl::printTensorType() {
     return "TrainingMatrix";
+}
+
+std::string BatchNormParamImpl::printTensorType() {
+    return "BatchNormParam";
 }
 
 void InputVectorImpl::printNodeAndEdges(std::ostream& fout) {

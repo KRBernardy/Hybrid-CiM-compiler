@@ -119,6 +119,10 @@ void ModelImpl::addVectorImpl(VectorImpl* vec) {
     vectors_.push_back(vec);
 }
 
+void ModelImpl::addConstantVectorImpl(ConstantVectorImpl* vec) {
+    ConstantVectors_.push_back(vec);
+}
+
 void ModelImpl::addImagePixelStreamImpl(ImagePixelStreamImpl* stream) {
     imagePixelStreams_.push_back(stream);
 }

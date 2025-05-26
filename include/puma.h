@@ -81,6 +81,7 @@ class Vector {
 
         Vector(VectorImpl* impl=NULL);
         Vector(InputVector x);
+        Vector(ConstantVector x);
 
         VectorImpl* unwrap();
 
@@ -136,6 +137,21 @@ class OutputImagePixelStream {
 
 };
 
+class ConstantVectorImpl;
+class ConstantVector {
+
+    private:
+
+        ConstantVectorImpl* impl_;
+
+    public:
+
+        static ConstantVector create(Model model, std::string name, unsigned int length);
+
+        ConstantVectorImpl* unwrap();
+
+};
+
 class ConstantMatrixImpl;
 class ConstantMatrix {
 
@@ -178,6 +194,21 @@ class TrainingMatrix {
         static TrainingMatrix create(Model model, std::string name, unsigned int width, unsigned int height);
 
         TrainingMatrixImpl* unwrap();
+
+};
+
+class BatchNormParamImpl;
+class BatchNormParam {
+
+    private:
+
+        BatchNormParamImpl* impl_;
+
+    public:
+
+        static BatchNormParam create(Model model, std::string name, unsigned int nChannels);
+
+        BatchNormParamImpl* unwrap();
 
 };
 
@@ -278,9 +309,11 @@ ImagePixelStream conv2d_forward(ConvolutionalConstantMatrix Mparam, ImagePixelSt
 Vector flatten(ImagePixelStream x);
 ImagePixelStream unflatten(Vector x, unsigned int imageWidth, unsigned int imageHeight, unsigned int nChannels);
 ImagePixelStream merge(std::vector<ImagePixelStream>& streams);
+ImagePixelStream batchnorm(ImagePixelStream xs, BatchNormParam param);
 
-// Training matrix operations
-Vector operator*(TrainingMatrix M, Vector x);
+    // Training matrix operations
+    Vector
+    operator*(TrainingMatrix M, Vector x);
 Vector operator*(Transpose M, Vector x);
 void operator-=(TrainingMatrix M, OuterProduct op);
 

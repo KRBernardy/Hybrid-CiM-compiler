@@ -280,7 +280,7 @@ class ALUVectorOperation : public ProducerOperation, public ConsumerOperation, p
 
         enum OpCode {
             ADD, SUB, MUL, DIV,                                                 /* Arithmetic */
-            MULI,                                                               /* Arithmetic immediate */
+            ADDI, SUBI, MULI, DIVI,                                             /* Arithmetic immediate */
             AND, OR, NOT,                                                       /* Logical */
             EQ, NEQ, LT, LEQ, GT, GEQ,                                          /* Comparison */
             MIN, MAX,                                                           /* Min/Max */
@@ -299,7 +299,7 @@ class ALUVectorOperation : public ProducerOperation, public ConsumerOperation, p
         ALUVectorOperation(ModelImpl* model, OpCode opCode, ProducerOperation* src1, float imm);
 
         OpCode getOpCode() { return opCode_; }
-        bool isImmediate() { return opCode_ == MULI; }
+        bool isImmediate() { return opCode_ == ADDI || opCode_ == SUBI || opCode_ == MULI || opCode_ == DIVI; }
         float getImmediate() { return imm_; }
 
         std::string printNodeStyle();
@@ -472,3 +472,18 @@ class PseudoOutputOperation : public OutputOperation, public ConsumerOperation {
 
 };
 
+class ConstantVectorOperation : public ProducerOperation, public CoreOperation {
+
+    protected:
+
+        ConstantVectorTile* vec_;
+
+    public:
+
+        ConstantVectorOperation(ModelImpl* model, ConstantVectorTile* vec);
+        ConstantVectorTile* getVector() { return vec_; }
+
+        std::string printOperationType();
+        void printNodeAndEdges(std::ostream& fout);
+
+};

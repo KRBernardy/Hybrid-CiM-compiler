@@ -232,6 +232,7 @@ void RegisterAllocator::registerAllocation() {
     // Allocate registers
     for(unsigned int pTile = 0; pTile < placer_->getNPTiles(); ++pTile) {
         for(unsigned int pCore = 0; pCore < N_CORES_PER_TILE; ++pCore) {
+            allocateStorageRegisters(pTile, pCore);
             allocateReservedInputRegisters(pTile, pCore);
             allocateReservedOutputRegisters(pTile, pCore);
             allocateDataRegisters(pTile, pCore);
@@ -240,19 +241,40 @@ void RegisterAllocator::registerAllocation() {
 
 }
 
+void RegisterAllocator::allocateStorageRegisters(unsigned int pTile, unsigned int pCore) {
+    // Allocate storage registers for constant vectors
+    std::list<CoreOperation *> &coreOperationList = linearizer_->getCoreOperationList(pTile, pCore);
+    unsigned int reg = 0;
+    for (auto op = coreOperationList.begin(); op != coreOperationList.end(); ++op){
+        if (ConstantVectorOperation *cvop = dynamic_cast<ConstantVectorOperation *>(*op)) {
+            if (reg + cvop->length() < N_STORAGE_REGISTERS) {
+                assignRegister(cvop, STORAGE_REGISTERS_START_ADDRESS + reg);
+                reg += cvop->length();
+            } else {
+                std::cerr << "Error: Not enough storage registers available for constant vector operation!" << std::endl;
+                assert(0 && "Not enough storage registers available for constant vector operation!");
+            }
+        }
+    }
+    
+}
+
 void RegisterAllocator::allocateReservedInputRegisters(unsigned int pTile, unsigned int pCore) {
     // Assign reserved input registers and ensure no overlap in live ranges
     std::set<ProducerOperation*> liveNow;
     std::list<CoreOperation*>& coreOperationList = linearizer_->getCoreOperationList(pTile, pCore);
     for(auto op = coreOperationList.rbegin(); op != coreOperationList.rend(); ++op) {
         if(ProducerOperation* producer = dynamic_cast<ProducerOperation*>(*op)) {
-            liveNow.erase(producer);
+            // Skip ConstantVectorOperations since they already have storage registers
+            if (!dynamic_cast<ConstantVectorOperation *>(producer)) {
+                liveNow.erase(producer);
+            }
         }
         if(ConsumerOperation* consumer = dynamic_cast<ConsumerOperation*>(*op)) {
             if(readsFromReservedInputRegister(consumer)) {
                 for(unsigned int o = 0; o < consumer->numOperands(); ++o) {
                     ProducerOperation* producer = consumer->getOperand(o);
-                    if(!liveNow.count(producer)) {
+                    if (!dynamic_cast<ConstantVectorOperation *>(producer) && !liveNow.count(producer)) {
                         liveNow.insert(producer);
                         assignReservedInputRegister(producer);
                         for(ProducerOperation* p : liveNow) {
@@ -274,7 +296,10 @@ void RegisterAllocator::allocateReservedOutputRegisters(unsigned int pTile, unsi
     std::list<CoreOperation*>& coreOperationList = linearizer_->getCoreOperationList(pTile, pCore);
     for(auto op = coreOperationList.rbegin(); op != coreOperationList.rend(); ++op) {
         if(ProducerOperation* producer = dynamic_cast<ProducerOperation*>(*op)) {
-            liveNow.erase(producer);
+            // Skip ConstantVectorOperations
+            if (!dynamic_cast<ConstantVectorOperation *>(producer)) {
+                liveNow.erase(producer);
+            }
         }
         if(ConsumerOperation* consumer = dynamic_cast<ConsumerOperation*>(*op)) {
             for(unsigned int o = 0; o < consumer->numOperands(); ++o) {
@@ -309,7 +334,10 @@ void RegisterAllocator::allocateDataRegisters(unsigned int pTile, unsigned int p
 
         // Remove operations produced by this operation
         if(ProducerOperation* producer = dynamic_cast<ProducerOperation*>(*op)) {
-            liveIn[*op].erase(producer);
+            // Include all producers except ConstantVectorOperations in live analysis
+            if (!dynamic_cast<ConstantVectorOperation *>(producer)) {
+                liveIn[*op].erase(producer);
+            }
         }
 
         // Add operations consumed by the operation
@@ -348,9 +376,12 @@ void RegisterAllocator::allocateDataRegisters(unsigned int pTile, unsigned int p
                 for(unsigned int o = 0; o < consumer->numOperands(); ++o) {
                     ProducerOperation* producer = consumer->getOperand(o);
                     if(!writesToReservedOutputRegister(producer)) {
-                        if(liveNow.count(producer) || spillTracker.isLiveNowReload(dynamic_cast<LoadOperation*>(producer))) {
+                        if (dynamic_cast<ConstantVectorOperation *>(producer) || liveNow.count(producer) || spillTracker.isLiveNowReload(dynamic_cast<LoadOperation *>(producer)))
+                        {
                             numUnspilledRegAccesses_ += producer->length();
-                        } else {
+                        }
+                        else
+                        {
                             // Reload operands that have been spilled
                             assert(spillTracker.isSpilled(producer));
                             if(spillTracker.hasLiveNowReload(producer)) {
@@ -398,7 +429,7 @@ void RegisterAllocator::allocateDataRegisters(unsigned int pTile, unsigned int p
                 // Free registers for operands that are no longer live
                 for(unsigned int o = 0; o < consumer->numOperands(); ++o) {
                     ProducerOperation* producer = consumer->getOperand(o);
-                    if(!writesToReservedOutputRegister(producer)) {
+                    if (!dynamic_cast<ConstantVectorOperation *>(producer) && !writesToReservedOutputRegister(producer)) {
                         if(liveNow.count(producer)) {
                             if(!liveOut.count(producer)) {
                                 liveNow.erase(producer);
@@ -431,8 +462,8 @@ void RegisterAllocator::allocateDataRegisters(unsigned int pTile, unsigned int p
             }
         }
 
-        // Allocate register for new operation unless it is a vector rebuild
-        if (!isRebuild) {
+        // Allocate register for new operation unless it is a vector rebuild or const vector
+        if (!isRebuild && !dynamic_cast<ConstantVectorOperation *>(*op)) {
             if(ProducerOperation* producer = dynamic_cast<ProducerOperation*>(*op)) {
                 assert(!liveIn[*op].count(producer));
                 if(liveOut.count(producer)) {
@@ -441,6 +472,30 @@ void RegisterAllocator::allocateDataRegisters(unsigned int pTile, unsigned int p
                     liveNow.insert(producer);
                 } else {
                 // Producer already assigned to a reserved input or output register
+                if (!(isRegisterAssigned(producer) || producerDoesNotWriteToRegister(producer)))
+                {
+                    std::cerr << "ERROR: Producer without assigned register: " << producer->printOperationType() << std::endl;
+                    std::cerr << "Producer length: " << producer->length() << std::endl;
+                    std::cerr << "Producer users: " << producer->numUsers() << std::endl;
+
+                    // Print more information about the current operation
+                    std::cerr << "Current operation: " << (*op)->printOperationType() << std::endl;
+
+                    // Check if this is a special operation type
+                    if (dynamic_cast<MVMOperation *>(producer))
+                        std::cerr << "Producer is MVM operation" << std::endl;
+                    else if (dynamic_cast<TrainingMatrixOperation *>(producer))
+                        std::cerr << "Producer is TrainingMatrix operation" << std::endl;
+                    else if (dynamic_cast<VectorRebuildOperation *>(producer))
+                        std::cerr << "Producer is VectorRebuild operation" << std::endl;
+
+                    // Print current live operations
+                    std::cerr << "Live operations: " << liveNow.size() << std::endl;
+                    for (auto live : liveNow)
+                    {
+                        std::cerr << "  " << live->printOperationType() << std::endl;
+                    }
+                }
                 assert(isRegisterAssigned(producer) || producerDoesNotWriteToRegister(producer));
                 }
             }
