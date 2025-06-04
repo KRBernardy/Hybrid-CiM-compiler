@@ -12,6 +12,8 @@
 #include <string>
 #include <vector>
 
+#define N_STORAGE_TYPES 10
+
 struct CompilerOptions {
 
         enum GraphPartitioningScheme { GP_ROW_MAJOR, GP_COL_MAJOR, GP_KAHIP, GP_RANDOM };
@@ -68,6 +70,19 @@ class InputImagePixelStream {
 
         InputImagePixelStreamImpl* unwrap();
 
+};
+
+class ConstantVectorImpl;
+class ConstantVector
+{
+
+private:
+    ConstantVectorImpl *impl_;
+
+public:
+    static ConstantVector create(Model model, std::string name, unsigned int length);
+
+    ConstantVectorImpl *unwrap();
 };
 
 class VectorImpl;
@@ -137,21 +152,6 @@ class OutputImagePixelStream {
 
 };
 
-class ConstantVectorImpl;
-class ConstantVector {
-
-    private:
-
-        ConstantVectorImpl* impl_;
-
-    public:
-
-        static ConstantVector create(Model model, std::string name, unsigned int length);
-
-        ConstantVectorImpl* unwrap();
-
-};
-
 class ConstantMatrixImpl;
 class ConstantMatrix {
 
@@ -160,8 +160,7 @@ class ConstantMatrix {
         ConstantMatrixImpl* impl_;
 
     public:
-
-        static ConstantMatrix create(Model model, std::string name, unsigned int width, unsigned int height);
+        static ConstantMatrix create(Model model, std::string name, unsigned int width, unsigned int height, unsigned int storageType);
 
         ConstantMatrixImpl* unwrap();
 
@@ -176,7 +175,7 @@ class ConvolutionalConstantMatrix {
 
     public:
 
-        static ConvolutionalConstantMatrix create(Model model, std::string name, unsigned int kernelWidth, unsigned kernelHeight, unsigned int nInChannels, unsigned int nOutChannels);
+        static ConvolutionalConstantMatrix create(Model model, std::string name, unsigned int kernelWidth, unsigned kernelHeight, unsigned int nInChannels, unsigned int nOutChannels, unsigned int storageType);
 
         ConvolutionalConstantMatrixImpl* unwrap();
 

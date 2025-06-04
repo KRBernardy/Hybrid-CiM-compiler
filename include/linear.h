@@ -11,9 +11,9 @@
 
 #include "puma.h"
 
-static Vector linear(Model model, std::string layerName, unsigned int in_size, unsigned int out_size, Vector in, bool has_bias = true) {
+static Vector linear(Model model, std::string layerName, unsigned int in_size, unsigned int out_size, Vector in, bool has_bias = true, unsigned int storageType = 1) {
 
-    ConstantMatrix weight = ConstantMatrix::create(model, layerName + "weight", in_size, out_size);
+    ConstantMatrix weight = ConstantMatrix::create(model, layerName + "weight", in_size, out_size, storageType);
     if (has_bias) {
         ConstantVector bias = ConstantVector::create(model, layerName + "bias", out_size);
         return weight * in + bias;

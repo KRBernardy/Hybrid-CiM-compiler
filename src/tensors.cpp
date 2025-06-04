@@ -43,15 +43,16 @@ ConstantVector ConstantVector::create(Model model, std::string name, unsigned in
     return vec;
 }
 
-ConstantMatrix ConstantMatrix::create(Model model, std::string name, unsigned int width, unsigned int height) {
+ConstantMatrix ConstantMatrix::create(Model model, std::string name, unsigned int width, unsigned int height, unsigned int storageType) {
     ConstantMatrix m;
-    m.impl_ = new ConstantMatrixImpl(model.unwrap(), name, width, height);
+    m.impl_ = new ConstantMatrixImpl(model.unwrap(), name, width, height, storageType);
     return m;
 }
 
-ConvolutionalConstantMatrix ConvolutionalConstantMatrix::create(Model model, std::string name, unsigned int kernelWidth, unsigned int kernelHeight, unsigned int nInChannels, unsigned int nOutChannels) {
+ConvolutionalConstantMatrix ConvolutionalConstantMatrix::create(Model model, std::string name, unsigned int kernelWidth, unsigned int kernelHeight, unsigned int nInChannels, unsigned int nOutChannels, unsigned int storageType)
+{
     ConvolutionalConstantMatrix m;
-    m.impl_ = new ConvolutionalConstantMatrixImpl(model.unwrap(), name, kernelWidth, kernelHeight, nInChannels, nOutChannels);
+    m.impl_ = new ConvolutionalConstantMatrixImpl(model.unwrap(), name, kernelWidth, kernelHeight, nInChannels, nOutChannels, storageType);
     return m;
 }
 
@@ -219,8 +220,8 @@ OutputImagePixelStreamImpl::OutputImagePixelStreamImpl(ModelImpl* model, std::st
     model->addOutputImagePixelStreamImpl(this);
 }
 
-ConstantMatrixImpl::ConstantMatrixImpl(ModelImpl* model, std::string name, unsigned int width, unsigned int height)
-    : AbstractMatrix(model, name, width, height)
+ConstantMatrixImpl::ConstantMatrixImpl(ModelImpl *model, std::string name, unsigned int width, unsigned int height, unsigned int storageType)
+    : AbstractMatrix(model, name, width, height), storage_type_(storageType)
 {
     tiles_.resize(nHeightTiles());
     for(unsigned int h = 0; h < nHeightTiles(); ++h) {
@@ -234,14 +235,14 @@ ConstantMatrixImpl::ConstantMatrixImpl(ModelImpl* model, std::string name, unsig
             if(w == nWidthTiles() - 1 && width%MVMU_DIM > 0) {
                 tileWidth = width%MVMU_DIM;
             }
-            tiles_[h][w] = new ConstantMatrixTile(model, name + "[" + std::to_string(h) + "][" + std::to_string(w) + "]", tileWidth, tileHeight);
+            tiles_[h][w] = new ConstantMatrixTile(model, name + "[" + std::to_string(h) + "][" + std::to_string(w) + "]", tileWidth, tileHeight, storageType);
         }
     }
     model->addConstantMatrixImpl(this);
 }
 
-ConvolutionalConstantMatrixImpl::ConvolutionalConstantMatrixImpl(ModelImpl* model, std::string name, unsigned int kernelWidth, unsigned int kernelHeight, unsigned int nInChannels, unsigned int nOutChannels)
-    : AbstractTensor(model, name), kernelWidth_(kernelWidth), kernelHeight_(kernelHeight), nInChannels_(nInChannels), nOutChannels_(nOutChannels)
+ConvolutionalConstantMatrixImpl::ConvolutionalConstantMatrixImpl(ModelImpl *model, std::string name, unsigned int kernelWidth, unsigned int kernelHeight, unsigned int nInChannels, unsigned int nOutChannels, unsigned int storageType)
+    : AbstractTensor(model, name), kernelWidth_(kernelWidth), kernelHeight_(kernelHeight), nInChannels_(nInChannels), nOutChannels_(nOutChannels), storage_type_(storageType)
 {
     tiles_.resize(kernelHeight);
     for(unsigned int kh = 0; kh < kernelHeight; ++kh) {
@@ -259,7 +260,7 @@ ConvolutionalConstantMatrixImpl::ConvolutionalConstantMatrixImpl(ModelImpl* mode
                     if(w == getNInChannelTiles() - 1 && nInChannels%MVMU_DIM > 0) {
                         tileWidth = nInChannels%MVMU_DIM;
                     }
-                    tiles_[kh][kw][h][w] = new ConstantMatrixTile(model, name + "[" + std::to_string(kh) + "][" + std::to_string(kw) + "][" + std::to_string(h) + "][" + std::to_string(w) + "]", tileWidth, tileHeight);
+                    tiles_[kh][kw][h][w] = new ConstantMatrixTile(model, name + "[" + std::to_string(kh) + "][" + std::to_string(kw) + "][" + std::to_string(h) + "][" + std::to_string(w) + "]", tileWidth, tileHeight, storageType);
                 }
             }
         }

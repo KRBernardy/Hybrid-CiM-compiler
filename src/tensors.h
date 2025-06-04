@@ -319,14 +319,16 @@ class ConstantMatrixTile : public AbstractMatrix {
     protected:
 
         std::vector<MVMOperation*> users_;
+        unsigned int storage_type_; // using this to differentiate between different storage types
 
     public:
 
-        ConstantMatrixTile(ModelImpl* model, std::string name, unsigned int width, unsigned int height) : AbstractMatrix(model, name, width, height) { }
+        ConstantMatrixTile(ModelImpl* model, std::string name, unsigned int width, unsigned int height, unsigned int storageType) : AbstractMatrix(model, name, width, height), storage_type_(storageType) { }
 
         void addUser(MVMOperation* user) { users_.push_back(user); }
         unsigned int numUsers() { return users_.size(); }
         MVMOperation* getUser(unsigned int i) { return users_[i]; }
+        unsigned int getStorageType() { return storage_type_; }
 
         std::string printTensorType();
 
@@ -337,15 +339,16 @@ class ConstantMatrixImpl : public AbstractMatrix {
     protected:
 
         std::vector< std::vector<ConstantMatrixTile*> > tiles_;
+        unsigned int storage_type_; // using this to differentiate between different storage types
 
     public:
-
-        ConstantMatrixImpl(ModelImpl* model, std::string name, unsigned int width, unsigned int height);
+        ConstantMatrixImpl(ModelImpl *model, std::string name, unsigned int width, unsigned int height, unsigned int storageType);
         ~ConstantMatrixImpl();
 
         unsigned int nHeightTiles() { return (height_ - 1)/MVMU_DIM + 1; }
         unsigned int nWidthTiles() { return (width_ - 1)/MVMU_DIM + 1; }
         ConstantMatrixTile* getTile(unsigned int h, unsigned int w);
+        unsigned int getStorageType() { return storage_type_; }
 
         std::string printTensorType();
 
@@ -361,11 +364,11 @@ class ConvolutionalConstantMatrixImpl : public AbstractTensor {
         unsigned int kernelHeight_;
         unsigned int nInChannels_;
         unsigned int nOutChannels_;
+        unsigned int storage_type_; // using this to differentiate between different storage types
         std::vector< std::vector< std::vector< std::vector<ConstantMatrixTile*> > > > tiles_;
 
     public:
-
-        ConvolutionalConstantMatrixImpl(ModelImpl* model, std::string name, unsigned int kernelWidth, unsigned int kernelHeight, unsigned int nInChannels, unsigned int nOutChannels);
+        ConvolutionalConstantMatrixImpl(ModelImpl *model, std::string name, unsigned int kernelWidth, unsigned int kernelHeight, unsigned int nInChannels, unsigned int nOutChannels, unsigned int storageType);
         ~ConvolutionalConstantMatrixImpl();
 
         unsigned int getKernelWidth() { return kernelWidth_; }
@@ -376,6 +379,7 @@ class ConvolutionalConstantMatrixImpl : public AbstractTensor {
         unsigned int getNOutChannelTiles() { return (nOutChannels_ - 1)/MVMU_DIM + 1; }
         ConstantMatrixTile* getTile(unsigned int kh, unsigned int kw, unsigned int h, unsigned int w);
         void checkCompatibility(AbstractImagePixelStream* vs);
+        unsigned int getStorageType() { return storage_type_; }
 
         std::string printTensorType();
 

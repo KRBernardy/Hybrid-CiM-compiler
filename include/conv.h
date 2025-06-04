@@ -11,9 +11,9 @@
 
 #include "puma.h"
 
-static ImagePixelStream conv2d(Model model, std::string layerName, const unsigned int* kernel_size, ImagePixelStream in_stream, unsigned int stride_x = 1, unsigned int stride_y = 1, unsigned int padding_x = 0, unsigned int padding_y = 0) {
+static ImagePixelStream conv2d(Model model, std::string layerName, const unsigned int* kernel_size, ImagePixelStream in_stream, unsigned int stride_x = 1, unsigned int stride_y = 1, unsigned int padding_x = 0, unsigned int padding_y = 0, unsigned int storageType = 1) {
 
-    ConvolutionalConstantMatrix mat = ConvolutionalConstantMatrix::create(model, layerName + "mat", kernel_size[0], kernel_size[1], kernel_size[2], kernel_size[3]);
+    ConvolutionalConstantMatrix mat = ConvolutionalConstantMatrix::create(model, layerName + "mat", kernel_size[0], kernel_size[1], kernel_size[2], kernel_size[3], storageType);
 
     return conv2d_forward(mat, in_stream, stride_x, stride_y, padding_x, padding_y);
 

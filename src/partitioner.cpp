@@ -26,12 +26,12 @@ Partitioner::Partitioner(ModelImpl* model, CompilerOptions::GraphPartitioningSch
     switch(gp_) {
         case CompilerOptions::GP_ROW_MAJOR:
             assignVMVMUsInRowMajor();
-            assignVCoresInVMVMUOrder();
+            assignVCoresWithStorageType();
             assignVTilesInVMVMUOrder();
             break;
         case CompilerOptions::GP_COL_MAJOR:
             assignVMVMUsInColMajor();
-            assignVCoresInVMVMUOrder();
+            assignVCoresWithStorageType();
             assignVTilesInVMVMUOrder();
             break;
         case CompilerOptions::GP_KAHIP: // FIXME: check whether KaHIP exists
@@ -41,7 +41,7 @@ Partitioner::Partitioner(ModelImpl* model, CompilerOptions::GraphPartitioningSch
             break;
         case CompilerOptions::GP_RANDOM:
             assignVMVMUsRandomly();
-            assignVCoresInVMVMUOrder();
+            assignVCoresWithStorageType();
             assignVTilesInVMVMUOrder();
             break;
         default: assert(0 && "Unrecognized graph partitioning scheme!");
@@ -143,6 +143,7 @@ void Partitioner::assignVMVMUsInRowMajor() {
                 }
             }
         }
+        vmvmuType_.resize(cmatTiles_.size() + 2);
     } else if(model_->getModelType() == ModelImpl::TRAINING) {
         for(auto m = model_->train_mat_begin(); m != model_->train_mat_end(); ++m) {
             TrainingMatrixImpl* mat = *m;
@@ -152,6 +153,7 @@ void Partitioner::assignVMVMUsInRowMajor() {
                 }
             }
         }
+        vmvmuType_.resize(tmatTiles_.size() + 2);
     }
 
     assignVMVMUsAndSpreadAffinity();
@@ -182,6 +184,7 @@ void Partitioner::assignVMVMUsInColMajor() {
                 }
             }
         }
+        vmvmuType_.resize(cmatTiles_.size() + 2);
     } else if(model_->getModelType() == ModelImpl::TRAINING) {
         for(auto m = model_->train_mat_begin(); m != model_->train_mat_end(); ++m) {
             TrainingMatrixImpl* mat = *m;
@@ -191,6 +194,7 @@ void Partitioner::assignVMVMUsInColMajor() {
                 }
             }
         }
+        vmvmuType_.resize(tmatTiles_.size() + 2);
     }
 
     assignVMVMUsAndSpreadAffinity();
@@ -221,6 +225,7 @@ void Partitioner::assignVMVMUsRandomly() {
                 }
             }
         }
+        vmvmuType_.resize(cmatTiles_.size() + 2);
     } else if(model_->getModelType() == ModelImpl::TRAINING) {
         for(auto m = model_->train_mat_begin(); m != model_->train_mat_end(); ++m) {
             TrainingMatrixImpl* mat = *m;
@@ -230,6 +235,7 @@ void Partitioner::assignVMVMUsRandomly() {
                 }
             }
         }
+        vmvmuType_.resize(tmatTiles_.size() + 2);
     }
 
     // Shuffle them randomly
@@ -247,12 +253,14 @@ void Partitioner::assignVMVMUsAndSpreadAffinity() {
 
     // Reserve virtual MVMUs 0 and 1 for input and output tiles respectively
     nVMVMUs_ = 2;
+    vmvmuType_[0] = vmvmuType_[1] = 0; // storage type 0 for input and output tiles
 
     // Assign matrix tiles to virtual MVMUs
     if(model_->getModelType() == ModelImpl::INFERENCE) {
         for(ConstantMatrixTile* tile : cmatTiles_) {
             unsigned int vMVMU = nVMVMUs_++;
             cmat2vmvmu_[tile] = vMVMU;
+            vmvmuType_[vMVMU] = tile->getStorageType();
             for(unsigned int u = 0; u < tile->numUsers(); ++u) {
                 MVMOperation* mvm = tile->getUser(u);
                 assignVMVMU(mvm, vMVMU);
@@ -489,6 +497,54 @@ void Partitioner::assignVTilesWithKaHIP() {
         vcore2vtile_[node + 2] = result[node] + 2;
     }
 
+}
+
+void Partitioner::assignVCoresWithStorageType() {
+
+    // Assign virtual cores based on storage type
+    vmvmu2vcore_.resize(nVMVMUs_);
+    
+    // Reserve virtual cores 0 and 1 for input and output tiles respectively
+    nVCores_ = 2;
+    vmvmu2vcore_[0] = 0;
+    vmvmu2vcore_[1] = 1;
+    vcoreType_.resize(2);
+    vcoreType_[0] = vcoreType_[1] = 0; // storage type 0 for input and output tiles
+
+    unsigned int typeCounterMVMU[N_STORAGE_TYPES] = {2, 0}; // Counter for each storage type for MVMUs, 2 for input and output MVMUs
+    unsigned int lastCoreOfType[N_STORAGE_TYPES] = {0};
+    unsigned int nMVMUSPerCore = (model_->getModelType() == ModelImpl::INFERENCE) ? (N_CONSTANT_MVMUS_PER_CORE) : (N_TRAINING_MVMUS_PER_CORE);
+
+    // Assign virtual MVMUs to virtual cores in order
+    for (unsigned int vmvmu = 2; vmvmu < nVMVMUs_; ++vmvmu) { // Iterate over mvmus
+        unsigned int type = vmvmuType_[vmvmu];
+        ++typeCounterMVMU[type];
+        if (typeCounterMVMU[type] % nMVMUSPerCore == 1) { // If this is the first MVMU of the core
+            unsigned int vCore = nVCores_++;
+            lastCoreOfType[type] = vCore; // Update last core of this type
+            vmvmu2vcore_[vmvmu] = vCore;
+            vcoreType_[vCore] = type; // Assign storage type to the core
+        } else {
+            vmvmu2vcore_[vmvmu] = lastCoreOfType[type]; // Assign to the last core of this type
+        }
+    }
+}
+
+void Partitioner::assignVTilesWithStorageType() {
+
+    vcore2vtile_.resize(nVCores_);
+
+    // Reserve virtual tiles 0 and 1 for input and output tiles respectively
+    nVTiles_ = 2;
+    vcore2vtile_[0] = 0;
+    vcore2vtile_[1] = 1;
+
+    // Assign virtual cores to virtual tiles in order
+    nVTiles_ += (nVCores_ - 2 - 1) / N_CORES_PER_TILE + 1; // -2 accounts for virtual cores 0 and 1 which are reserved for input and output
+    for (unsigned int vCore = 2; vCore < nVCores_; ++vCore)
+    {
+        vcore2vtile_[vCore] = (vCore - 2) / N_CORES_PER_TILE + 2;
+    }
 }
 
 void Partitioner::mergeConstantVectors() {
