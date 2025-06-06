@@ -106,6 +106,9 @@ class RegisterAllocator;
 /* codegen.h */
 class CodeGenerator;
 
+/* configgen.h */
+class ConfigGenerator;
+
 /* instance.h */
 class ModelInstanceImpl;
 

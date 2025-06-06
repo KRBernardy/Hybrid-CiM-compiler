@@ -87,6 +87,9 @@ class Partitioner {
         unsigned int getVTile(Operation* op);
         unsigned int getVCore(unsigned int vMVMU) { return vmvmu2vcore_[vMVMU]; }
         unsigned int getVTile(unsigned int vCore) { return vcore2vtile_[vCore]; }
+        unsigned int getVMVMUType(unsigned int vMVMU) { return vmvmuType_[vMVMU]; }
+        unsigned int getVCoreType(unsigned int vCore) { return vcoreType_[vCore]; }
+        unsigned int getVTileType(unsigned int vTile) { return vtileType_[vTile]; }
 
         void cloneAssignment(Operation* cloneFrom, Operation* cloneTo);
 

@@ -44,6 +44,7 @@ class ModelImpl {
         Linearizer* linearizer_;
         RegisterAllocator* registerAllocator_;
         CodeGenerator* codeGenerator_;
+        ConfigGenerator* configGenerator_;
 
         std::set<ModelInstanceImpl*> instances_;
 

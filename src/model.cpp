@@ -15,6 +15,7 @@
 
 #include "coalescer.h"
 #include "codegen.h"
+#include "configgen.h"
 #include "instance.h"
 #include "linearizer.h"
 #include "memalloc.h"
@@ -271,6 +272,11 @@ void ModelImpl::compile(CompilerOptions& options) {
     // Code generation
     std::cout << "Code generation... " << std::flush;
     codeGenerator_ = new CodeGenerator(this, placer_, memoryAllocator_, coalescer_, linearizer_, registerAllocator_);
+    std::cout << "done." << std::endl;
+
+    // Generate configuration file
+    std::cout << "Generating configuration file... " << std::flush;
+    configGenerator_ = new ConfigGenerator(this, placer_);
     std::cout << "done." << std::endl;
 
     // Report

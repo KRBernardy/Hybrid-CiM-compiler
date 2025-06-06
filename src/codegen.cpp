@@ -29,6 +29,8 @@
 #include <errno.h>
 #endif
 
+using json = nlohmann::json;
+
 CodeGenerator::CodeGenerator(ModelImpl* model, Placer* placer, MemoryAllocator* memoryAllocator, Coalescer* coalescer, Linearizer* linearizer, RegisterAllocator* registerAllocator)
     : model_(model), placer_(placer), memoryAllocator_(memoryAllocator), coalescer_(coalescer), linearizer_(linearizer), registerAllocator_(registerAllocator)
 {
@@ -50,8 +52,6 @@ CodeGenerator::CodeGenerator(ModelImpl* model, Placer* placer, MemoryAllocator* 
     jsonFile << j.dump(4);
     jsonFile.close();
 }
-
-using json = nlohmann::json;
 
 void CodeGenerator::codegen() {
 

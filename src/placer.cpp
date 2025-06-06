@@ -29,6 +29,9 @@ void Placer::assignPTiles() {
     // Assign virtual tiles to physical tiles
     nPTiles_ = partitioner_->getNVTiles();
     vtile2ptile_.resize(partitioner_->getNVTiles());
+    pTileType_.resize(nPTiles_);
+    pCoreType_.resize(nPTiles_);
+    pMVMUType_.resize(nPTiles_);
     vtile2ptile_[0] = 0; // Reserve tile 0 for sending inputs
     vtile2ptile_[1] = 1; // Reserve tile 1 for receiving outputs
     for(unsigned int vTile = 2; vTile < partitioner_->getNVTiles(); ++vTile) {
@@ -51,8 +54,9 @@ void Placer::assignPCores() {
         unsigned int pCore = nPCoresPerPTile[pTile]++;
         assert(pCore < N_CORES_PER_TILE);
         vcore2pcore_[vCore] = pCore;
+        pCoreType_[pTile].push_back(partitioner_->getVCoreType(vCore));
+        pMVMUType_[pTile].push_back(std::vector<unsigned int>());
     }
-
 }
 
 void Placer::assignPMVMUs() {
@@ -71,6 +75,7 @@ void Placer::assignPMVMUs() {
         nPMVMUsPerPCore[pTile*N_CORES_PER_TILE + pCore] += 1;
         assert(pMVMU < nMVMUSPerCore);
         vmvmu2pmvmu_[vMVMU] = pMVMU;
+        pMVMUType_[pTile][pCore].push_back(partitioner_->getVMVMUType(vMVMU));
     }
 
 }
@@ -109,6 +114,26 @@ unsigned int Placer::getPCore(Operation* op) {
 
 unsigned int Placer::getPMVMU(Operation* op) {
     return vmvmu2pmvmu_[partitioner_->getVMVMU(op)];
+}
+
+unsigned int Placer::getType(unsigned int pTile, unsigned int pCore, unsigned int pMVMU) {
+    return pMVMUType_[pTile][pCore][pMVMU];
+}
+
+unsigned int Placer::getType(unsigned int pTile, unsigned int pCore) {
+    return pCoreType_[pTile][pCore];
+}
+
+unsigned int Placer::getType(unsigned int pTile) {
+    return pTileType_[pTile];
+}
+
+unsigned int Placer::getNCoresOfTile(unsigned int pTile) {
+    return pCoreType_[pTile].size();
+}
+
+unsigned int Placer::getNMVMVUsOfCore(unsigned int pTile, unsigned int pCore) {
+    return pMVMUType_[pTile][pCore].size();
 }
 
 std::string Placer::printAssignment(Operation* op) {
