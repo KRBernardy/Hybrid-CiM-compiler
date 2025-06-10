@@ -23,6 +23,10 @@ class Placer {
         std::vector<unsigned int> vcore2pcore_;
         std::vector<unsigned int> vmvmu2pmvmu_;
 
+        std::vector<std::vector<std::vector<unsigned int>>> pMVMUType_;
+        std::vector<std::vector<unsigned int>> pCoreType_;
+        std::vector<unsigned int> pTileType_;
+
         void assignPTiles();
         void assignPCores();
         void assignPMVMUs();
@@ -43,6 +47,11 @@ class Placer {
         unsigned int getPMVMU(Operation* op);
         unsigned int getPTile(Operation* op);
         unsigned int getPCore(Operation* op);
+        unsigned int getType(unsigned int pTile, unsigned int pCore, unsigned int pMVMU);
+        unsigned int getType(unsigned int pTile, unsigned int pCore);
+        unsigned int getType(unsigned int pTile);
+        unsigned int getNCoresOfTile(unsigned int pTile);
+        unsigned int getNMVMVUsOfCore(unsigned int pTile, unsigned int pCore);
 
         std::string printAssignment(Operation* op);
 

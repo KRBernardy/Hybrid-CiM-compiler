@@ -50,21 +50,22 @@ json ConfigGenerator::configGen() {
     json core_config;
     core_config["dataMem_size"] = REGISTER_FILE_SIZE;
     core_config["storageMem_size"] = N_STORAGE_REGISTERS;
-    j["core_config"] = core_config;
 
-    // Add Core type information
-    json core_type = json::array();
+    json core_type_2d = json::array();
     for (unsigned int pTile = 0; pTile < placer_->getNPTiles(); ++pTile) {
+        json tile_core_types = json::array();
         unsigned int nCoresOfTile = placer_->getNCoresOfTile(pTile);
         for (unsigned int pCore = 0; pCore < nCoresOfTile; ++pCore) {
-            json core_info;
-            core_info["tile"] = pTile;
-            core_info["core"] = pCore;
-            core_info["type"] = placer_->getType(pTile, pCore);
-            core_type.push_back(core_info);
+            tile_core_types.push_back(placer_->getType(pTile, pCore));
         }
+        for (unsigned int i = tile_core_types.size(); i < N_CORES_PER_TILE; ++i) {
+            tile_core_types.push_back(0); // Fill with 0 if fewer cores than expected
+        }
+        core_type_2d.push_back(tile_core_types);
     }
-    j["core_type"] = core_type;
+    core_config["core_type"] = core_type_2d;
+
+    j["core_config"] = core_config;
 
     return j;
 }
