@@ -127,7 +127,7 @@ json CodeGenerator::jsonGen() {
         // Generate JSON for the tile
         std::list<TileOperation *> &tileOperationList = linearizer_->getTileOperationList(pTile);
         for (TileOperation *tileOp : tileOperationList) {
-            json temp;
+            json temp = json();
             if (SendOperation *send = dynamic_cast<SendOperation *>(tileOp))
                 temp = jsonGen(send, pTile);
             else if (ReceiveOperation *recv = dynamic_cast<ReceiveOperation *>(tileOp))
@@ -151,7 +151,7 @@ json CodeGenerator::jsonGen() {
         for (unsigned int pCore = 0; pCore < N_CORES_PER_TILE; ++pCore) {
             std::list<CoreOperation *> &coreOperationList = linearizer_->getCoreOperationList(pTile, pCore);
             for (CoreOperation *coreOp : coreOperationList) {
-                json temp;
+                json temp = json();
                 if (MVMOperation *mvm = dynamic_cast<MVMOperation *>(coreOp))
                     temp = jsonGen(mvm, pTile, pCore);
                 else if (TrainingMatrixOperation *trainOp = dynamic_cast<TrainingMatrixOperation *>(coreOp))
@@ -291,7 +291,7 @@ json CodeGenerator::jsonGen(MVMOperation *mvm, int tileID, int coreID) {
     CoalescedMVMSet *coalescedMVMSet = mvm->getCoalescedSet();
     if (coalescedMVMSet != NULL) {
         if (coalescedMVMSet->isSetLeader(mvm)) { // Only one MVM in a coalesced set does code generation on behalf of the others
-            return codegen(coalescedMVMSet);
+            return jsonGen(coalescedMVMSet, tileID, coreID);
         }
         else {
             return json();
