@@ -521,9 +521,9 @@ void Partitioner::assignVCoresWithStorageType() {
         ++typeCounterMVMU[type];
         if (typeCounterMVMU[type] % nMVMUSPerCore == 1) { // If this is the first MVMU of the core
             unsigned int vCore = nVCores_++;
+            vcoreType_.push_back(type); // Assign storage type to the core
             lastCoreOfType[type] = vCore; // Update last core of this type
             vmvmu2vcore_[vmvmu] = vCore;
-            vcoreType_[vCore] = type; // Assign storage type to the core
         } else {
             vmvmu2vcore_[vmvmu] = lastCoreOfType[type]; // Assign to the last core of this type
         }
