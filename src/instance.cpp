@@ -57,7 +57,7 @@ void ModelInstanceImpl::bind(std::string tensorName, float* data) {
 }
 
 void ModelInstanceImpl::load(std::string layerName, float* weights) {
-    bind(layerName + "mat", weights);
+    bind(layerName + "_weight", weights);
 }
 
 void ModelInstanceImpl::generateData() {
