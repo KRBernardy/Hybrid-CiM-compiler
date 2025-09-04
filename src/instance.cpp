@@ -181,7 +181,7 @@ void ModelInstanceImpl::generateData() {
         }
     }
 
-    std::ofstream jsonFile(dirName + "/weight.json");
+    std::ofstream jsonFile(dirName + "/weights.json");
     if (!jsonFile.is_open()) {
         std::cerr << "Error opening JSON file for writing." << std::endl;
         return;
