@@ -305,6 +305,10 @@ VectorImpl::VectorImpl(ModelImpl *model, unsigned int length)
     model->addVectorImpl(this);
 }
 
+ConstantVectorTile::ConstantVectorTile(ModelImpl* model, unsigned int length)
+    : AbstractVector(model, "", length), op_(new ConstantVectorOperation(model, this))
+{ }
+
 ConstantVectorImpl::ConstantVectorImpl(ModelImpl *model, std::string name, unsigned int length)
     : AbstractVector(model, name, length), tiles_((length - 1) / MVMU_DIM + 1)
 {

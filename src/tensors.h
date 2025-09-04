@@ -184,13 +184,12 @@ class ConstantVectorTile : public AbstractVector {
 
     protected:
 
-        std::vector<ConsumerOperation*> users_;
+        ConstantVectorOperation *op_;
 
     public:
 
-        ConstantVectorTile(ModelImpl* model, unsigned int length) : AbstractVector(model, "", length) { }
-        void addUser(ConsumerOperation* user) { users_.push_back(user); }
-        unsigned int numUsers() { return users_.size(); }
+        ConstantVectorTile(ModelImpl* model, unsigned int length);
+        ConstantVectorOperation* getOp() { return op_; }
 
         std::string printTensorType();
 

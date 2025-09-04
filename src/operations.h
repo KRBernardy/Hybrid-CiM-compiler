@@ -6,6 +6,9 @@
  *
  */
 
+#ifndef OPERATIONS_H
+#define OPERATIONS_H
+
 #include <iostream>
 #include <set>
 #include <string>
@@ -487,3 +490,5 @@ class ConstantVectorOperation : public ProducerOperation, public CoreOperation {
         void printNodeAndEdges(std::ostream& fout);
 
 };
+
+#endif // OPERATIONS_H

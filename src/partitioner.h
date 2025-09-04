@@ -30,7 +30,6 @@ class Partitioner {
         std::map<Operation*, unsigned int> op2vmvmu_;
         std::map<ConstantMatrixTile*, unsigned int> cmat2vmvmu_;
         std::map<TrainingMatrixTile*, unsigned int> tmat2vmvmu_;
-        std::map<ConstantVectorTile*, unsigned int> cvec2vmvmu_;
         std::vector<unsigned int> vmvmuType_;
         std::vector<unsigned int> vcoreType_;
         std::vector<unsigned int> vtileType_;
@@ -58,7 +57,6 @@ class Partitioner {
         void assignVTilesWithKaHIP();
         void assignVTilesWithStorageType();
 
-        void mergeConstantVectors();
         void insertLoadsAndStores();
         void insertSendsAndRecives();
         void insertInputAndOutput();
@@ -79,9 +77,6 @@ class Partitioner {
         unsigned int getVMVMU(TrainingMatrixTile* tile);
         unsigned int getVCore(TrainingMatrixTile* tile);
         unsigned int getVTile(TrainingMatrixTile* tile);
-        unsigned int getVMVMU(ConstantVectorTile* tile);
-        unsigned int getVCore(ConstantVectorTile* tile);
-        unsigned int getVTile(ConstantVectorTile* tile);
         unsigned int getVMVMU(Operation* op);
         unsigned int getVCore(Operation* op);
         unsigned int getVTile(Operation* op);

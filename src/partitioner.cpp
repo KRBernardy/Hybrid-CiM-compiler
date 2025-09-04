@@ -22,7 +22,6 @@
 Partitioner::Partitioner(ModelImpl* model, CompilerOptions::GraphPartitioningScheme gp)
     : model_(model), gp_(gp)
 {
-    mergeConstantVectors();
     switch(gp_) {
         case CompilerOptions::GP_ROW_MAJOR:
             assignVMVMUsInRowMajor();
@@ -90,19 +89,6 @@ unsigned int Partitioner::getVCore(TrainingMatrixTile* tile) {
 }
 
 unsigned int Partitioner::getVTile(TrainingMatrixTile* tile) {
-    return vcore2vtile_[getVCore(tile)];
-}
-
-unsigned int Partitioner::getVMVMU(ConstantVectorTile* tile) {
-    assert(cvec2vmvmu_.count(tile) && "Virtual MVMU not assigned!");
-    return cvec2vmvmu_[tile];
-}
-
-unsigned int Partitioner::getVCore(ConstantVectorTile* tile) {
-    return vmvmu2vcore_[getVMVMU(tile)];
-}
-
-unsigned int Partitioner::getVTile(ConstantVectorTile* tile) {
     return vcore2vtile_[getVCore(tile)];
 }
 
@@ -545,32 +531,6 @@ void Partitioner::assignVTilesWithStorageType() {
     {
         vcore2vtile_[vCore] = (vCore - 2) / N_CORES_PER_TILE + 2;
     }
-}
-
-void Partitioner::mergeConstantVectors() {
-
-    // replace all constant vector operations with one
-    std::map<ConstantVectorTile*, ConstantVectorOperation*> ctilesMap;
-    for(auto it = model_->op_begin(); it != model_->op_end(); ++it) {
-        Operation* op = *it;
-        if(ConstantVectorOperation* cvop = dynamic_cast<ConstantVectorOperation*>(op)) {
-            ConstantVectorTile* vec = cvop->getVector();
-            if (!ctilesMap.count(vec)) {
-                ctilesMap[vec] = cvop;
-            }
-            else {
-                // replace the tile with the first one
-                ConstantVectorOperation* first = ctilesMap[vec];
-                for(auto u = cvop->user_begin(); u != cvop->user_end(); ) {
-                    ConsumerOperation* user = *u;
-                    ++u; // replaceOperand may remove user from tile's users
-                    user->replaceOperand(cvop, first);
-                }
-                delete cvop;
-            }
-        }
-    }
-
 }
 
 void Partitioner::insertLoadsAndStores() {

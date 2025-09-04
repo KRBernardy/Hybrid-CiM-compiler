@@ -19,6 +19,7 @@
 #include "partitioner.h"
 #include "placer.h"
 #include "regalloc.h"
+#include "tensors.h"
 
 class CoreAllocator {
 
@@ -225,6 +226,11 @@ bool RegisterAllocator::producerDoesNotWriteToRegister(ProducerOperation* produc
 unsigned int RegisterAllocator::getRegister(ProducerOperation* producer) {
     assert(isRegisterAssigned(producer) && "Register has not been assigned!");
     return op2reg_[producer];
+}
+
+unsigned int RegisterAllocator::getRegister(ConstantVectorTile* tile) {
+    // Constant vector tiles always have storage registers assigned
+    return getRegister(tile->getOp());
 }
 
 void RegisterAllocator::registerAllocation() {

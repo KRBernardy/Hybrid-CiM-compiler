@@ -15,6 +15,7 @@
 #include "operations.h"
 #include "partitioner.h"
 #include "placer.h"
+#include "tensors.h"
 
 Placer::Placer(ModelImpl* model,Partitioner* partitioner)
     : model_(model), partitioner_(partitioner)
@@ -102,6 +103,18 @@ unsigned int Placer::getPCore(TrainingMatrixTile* tile) {
 
 unsigned int Placer::getPMVMU(TrainingMatrixTile* tile) {
     return vmvmu2pmvmu_[partitioner_->getVMVMU(tile)];
+}
+
+unsigned int Placer::getPTile(ConstantVectorTile* tile) {
+    return vtile2ptile_[partitioner_->getVTile(tile->getOp())];
+}
+
+unsigned int Placer::getPCore(ConstantVectorTile* tile) {
+    return vcore2pcore_[partitioner_->getVCore(tile->getOp())];
+}
+
+unsigned int Placer::getPMVMU(ConstantVectorTile* tile) {
+    return vmvmu2pmvmu_[partitioner_->getVMVMU(tile->getOp())];
 }
 
 unsigned int Placer::getPTile(Operation* op) {

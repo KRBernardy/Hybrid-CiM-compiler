@@ -13,6 +13,7 @@
 #include "instance.h"
 #include "model.h"
 #include "placer.h"
+#include "regalloc.h"
 #include "tensors.h"
 
 #include <nlohmann/json.hpp>
@@ -48,8 +49,8 @@ ModelInstanceImpl* ModelInstance::unwrap() {
     return impl_;
 }
 
-ModelInstanceImpl::ModelInstanceImpl(ModelImpl* model, Placer* placer)
-    : model_(model), placer_(placer)
+ModelInstanceImpl::ModelInstanceImpl(ModelImpl* model, Placer* placer, RegisterAllocator* registerAllocator)
+    : model_(model), placer_(placer), registerAllocator_(registerAllocator) 
 { }
 
 void ModelInstanceImpl::bind(std::string tensorName, float* data) {
@@ -153,6 +154,30 @@ void ModelInstanceImpl::generateData() {
                     }
                 }
             }
+        }
+    }
+    for (auto v = model_->const_vec_begin(); v != model_->const_vec_end(); ++v) {
+        ConstantVectorImpl* vec = *v;
+        std::string vecName = vec->name();
+        assert(tensorData_.count(vecName) && "No data provided for vector");
+        float* vecData = tensorData_[vecName];
+        for (unsigned int t = 0; t < vec->nTiles(); ++t) {
+            ConstantVectorTile* tile = vec->getTile(t);
+            unsigned int pTile = placer_->getPTile(tile);
+            unsigned int pCore = placer_->getPCore(tile);
+            unsigned int pMVMU = placer_->getPMVMU(tile);
+            unsigned int startAddr = registerAllocator_->getRegister(tile);
+            json temp;
+            temp["tile"] = pTile;
+            temp["core"] = pCore;
+            temp["mvmu"] = pMVMU;
+            temp["reg"] = startAddr;
+            temp["value"] = json::array();
+            for (unsigned int i = 0; i < tile->length(); ++i) {
+                float data = vecData[t * MVMU_DIM + i];
+                temp["value"].push_back(data);
+            }
+            js.push_back(temp);
         }
     }
 

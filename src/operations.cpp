@@ -58,7 +58,7 @@ Vector::Vector(ConstantVector xparam) {
     VectorImpl* y = new VectorImpl(x->getModel(), x->length());
     y->checkCompatibility(x);
     for(unsigned int t = 0; t < x->nTiles(); ++t) {
-        ProducerOperation* producer = new ConstantVectorOperation(x->getModel(), x->getTile(t));
+        ProducerOperation* producer = x->getTile(t)->getOp();
         y->setTile(t, producer);
     }
     impl_ = y;
@@ -505,10 +505,10 @@ ImagePixelStream batchnorm(ImagePixelStream xsparam, BatchNormParam bnparam) {
     for(unsigned int t = 0; t < xs->nTiles(); ++t) {
         ImagePixelStreamTile* xsTile = xs->getTile(t);
         ImagePixelStreamTile* ysTile = ys->getTile(t);
-        ConstantVectorOperation *mean_tile = new ConstantVectorOperation(model, mean->getTile(t));
-        ConstantVectorOperation *variance_tile = new ConstantVectorOperation(model, variance->getTile(t));
-        ConstantVectorOperation *weight_tile = new ConstantVectorOperation(model, weight->getTile(t));
-        ConstantVectorOperation *bias_tile = new ConstantVectorOperation(model, bias->getTile(t));
+        ConstantVectorOperation *mean_tile = mean->getTile(t)->getOp();
+        ConstantVectorOperation *variance_tile = variance->getTile(t)->getOp();
+        ConstantVectorOperation *weight_tile = weight->getTile(t)->getOp();
+        ConstantVectorOperation *bias_tile = bias->getTile(t)->getOp();
         for (unsigned int h = 0; h < xs->imageHeight(); ++h) {
             for (unsigned int w = 0; w < xs->imageWidth(); ++w) {
                 ProducerOperation* x = xsTile->get(h, w);

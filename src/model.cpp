@@ -288,7 +288,7 @@ void ModelImpl::compile(CompilerOptions& options) {
 }
 
 ModelInstanceImpl* ModelImpl::createInstance() {
-    ModelInstanceImpl* instance = new ModelInstanceImpl(this, placer_);
+    ModelInstanceImpl* instance = new ModelInstanceImpl(this, placer_, registerAllocator_);
     instances_.insert(instance);
     return instance;
 }

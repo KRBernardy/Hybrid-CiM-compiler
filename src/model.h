@@ -83,6 +83,8 @@ class ModelImpl {
         std::vector<ConstantMatrixImpl*>::iterator const_mat_end() { return constantMatrices_.end(); }
         std::vector<ConvolutionalConstantMatrixImpl*>::iterator conv_mat_begin() { return convolutionMatrices_.begin(); }
         std::vector<ConvolutionalConstantMatrixImpl*>::iterator conv_mat_end() { return convolutionMatrices_.end(); }
+        std::vector<ConstantVectorImpl*>::iterator const_vec_begin() { return ConstantVectors_.begin(); }
+        std::vector<ConstantVectorImpl*>::iterator const_vec_end() { return ConstantVectors_.end(); }
         std::vector<TrainingMatrixImpl*>::iterator train_mat_begin() { return trainingMatrices_.begin(); }
         std::vector<TrainingMatrixImpl*>::iterator train_mat_end() { return trainingMatrices_.end(); }
         std::set<Operation*>::iterator op_begin() { return operations_.begin(); }

@@ -77,6 +77,7 @@ class ReadOutputOperation;
 class VectorRebuildOperation;
 class PseudoInputOperation;
 class PseudoOutputOperation;
+class ConstantVectorOperation;
 
 /* allocator.h */
 class CoreAllocator;

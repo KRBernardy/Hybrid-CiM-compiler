@@ -49,6 +49,7 @@ class RegisterAllocator {
         RegisterAllocator(ModelImpl* model, Partitioner* partitioner, Placer* placer, MemoryAllocator* memoryAllocator, Linearizer* linearizer);
 
         unsigned int getRegister(ProducerOperation* producer);
+        unsigned int getRegister(ConstantVectorTile* tile);
 
         void printReport(std::ofstream& report);
         std::string printAssignment(Operation* op);
