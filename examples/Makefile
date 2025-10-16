@@ -8,7 +8,7 @@
 CXX=g++
 CXXFLAGS=-std=c++11 -O0 -g
 LD_FLAGS=
-INCLUDE=-I../include
+INCLUDE=-I../include -I../external/json/single_include
 LIB=-L../src -lpuma
 
 DEP=$(wildcard *.h)
