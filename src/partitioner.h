@@ -6,15 +6,40 @@
  *
  */
 
-#include <fstream>
-#include <map>
-#include <vector>
-#include <string>
+#ifndef __PARTITIONER_H__
+#define __PARTITIONER_H__
 
 #include "common.h"
+#include "model.h"
+
+class ConstantMatrixTile;
+class TrainingMatrixTile;
+class Operation;
+class ProducerOperation;
+class ConsumerOperation;
 
 class Partitioner {
 
+    public:
+
+        Partitioner(ModelImpl* model, CompilerOptions::GraphPartitioningScheme gp);
+
+        unsigned int getVCore(Operation* op);
+        unsigned int getVTile(Operation* op);
+        unsigned int getVMVMU(ConstantMatrixTile* tile);
+        unsigned int getVCore(ConstantMatrixTile* tile);
+        unsigned int getVTile(ConstantMatrixTile* tile);
+        unsigned int getVMVMU(TrainingMatrixTile* tile);
+        unsigned int getVCore(TrainingMatrixTile* tile);
+        unsigned int getVTile(TrainingMatrixTile* tile);
+        unsigned int getVMVMUType(unsigned int vMVMU);
+        unsigned int getVCoreType(unsigned int vCore);
+        unsigned int getVTileType(unsigned int vTile);
+
+        void cloneAssignment(Operation* cloneFrom, Operation* cloneTo);
+
+        std::string printAssignment(Operation* op);
+        void printReport(std::ofstream& report);
 
     private:
 
@@ -27,69 +52,53 @@ class Partitioner {
 
         std::vector<ConstantMatrixTile*> cmatTiles_;
         std::vector<TrainingMatrixTile*> tmatTiles_;
-        std::map<Operation*, unsigned int> op2vmvmu_;
+        
+        // Core assignment mappings
+        std::map<Operation*, unsigned int> op2vcore_;  // Direct operation to core mapping
         std::map<ConstantMatrixTile*, unsigned int> cmat2vmvmu_;
         std::map<TrainingMatrixTile*, unsigned int> tmat2vmvmu_;
+        std::map<unsigned int, unsigned int> vmvmu2vcore_;  // MVMU to core mapping
+        std::map<unsigned int, unsigned int> vcore2vtile_;  // Core to tile mapping
+        
+        // Type tracking
         std::vector<unsigned int> vmvmuType_;
         std::vector<unsigned int> vcoreType_;
         std::vector<unsigned int> vtileType_;
-        std::vector<unsigned int> vmvmu2vcore_;
-        std::vector<unsigned int> vcore2vtile_;
+        
+        // Load balancing
+        std::vector<unsigned int> coreWeights_;  // Track computational load per core
+        std::vector<std::set<unsigned int>> coreMVMUs_;  // Track MVMUs assigned to each core
 
-        bool isVMVMUAssigned(Operation* op);
-        void assignVMVMU(Operation* op, unsigned int vMVMU);
-        void assignVMVMUsAndSpreadAffinity();
-        void spreadVMVMUAffinityToOperands(ConsumerOperation* op);
-        void spreadVMVMUAffinityToUsers(ProducerOperation* op);
+        // Assignment functions
+        void assignVMVMUsInRowMajor();
+        void assignVMVMUsInColMajor();
+        void assignVMVMUsRandomly();
+        void assignMatsToVMVMUs();  // Assign constant matrix tiles to virtual MVMUs
+        void assignMVMUsToVCores();  // First assign MVMUs to cores
+        void assignOperationsToVCores();  // Then assign operations to cores
+        void assignVTilesInVCoreOrder();
+        void assignVTilesWithKaHIP();
+        
+        // Helper functions
+        bool isVCoreAssigned(Operation* op);
+        void assignVCore(Operation* op, unsigned int vCore);
+        unsigned int calculateCommCost(Operation* op, unsigned int vCore);
+        unsigned int findBestCoreForOperation(Operation* op);
+        
+        // Data movement insertion
+        void insertLoadsAndStores();
+        void insertSendsAndRecives();
+        void insertInputAndOutput();
+        void insertCopies();
+        
+        void unlink(Operation* op);
 
+        // Statistics
         unsigned int numLoads_ = 0;
         unsigned int numStores_ = 0;
         unsigned int numSends_ = 0;
         unsigned int numReceives_ = 0;
 
-        void assignVMVMUsInRowMajor();
-        void assignVMVMUsInColMajor();
-        void assignVMVMUsRandomly();
-        void assignVCoresInVMVMUOrder();
-        void assignVCoresWithKaHIP();
-        void assignVCoresWithStorageType();
-        void assignVTilesInVMVMUOrder();
-        void assignVTilesWithKaHIP();
-        void assignVTilesWithStorageType();
-
-        void insertLoadsAndStores();
-        void insertSendsAndRecives();
-        void insertInputAndOutput();
-        void insertCopies();
-
-        void unlink(Operation* op);
-
-    public:
-
-        Partitioner(ModelImpl* model, CompilerOptions::GraphPartitioningScheme gp);
-
-        unsigned int getNVMVMUs() { return nVMVMUs_; }
-        unsigned int getNVCores() { return nVCores_; }
-        unsigned int getNVTiles() { return nVTiles_; }
-        unsigned int getVMVMU(ConstantMatrixTile* tile);
-        unsigned int getVCore(ConstantMatrixTile* tile);
-        unsigned int getVTile(ConstantMatrixTile* tile);
-        unsigned int getVMVMU(TrainingMatrixTile* tile);
-        unsigned int getVCore(TrainingMatrixTile* tile);
-        unsigned int getVTile(TrainingMatrixTile* tile);
-        unsigned int getVMVMU(Operation* op);
-        unsigned int getVCore(Operation* op);
-        unsigned int getVTile(Operation* op);
-        unsigned int getVCore(unsigned int vMVMU) { return vmvmu2vcore_[vMVMU]; }
-        unsigned int getVTile(unsigned int vCore) { return vcore2vtile_[vCore]; }
-        unsigned int getVMVMUType(unsigned int vMVMU) { return vmvmuType_[vMVMU]; }
-        unsigned int getVCoreType(unsigned int vCore) { return vcoreType_[vCore]; }
-        unsigned int getVTileType(unsigned int vTile) { return vtileType_[vTile]; }
-
-        void cloneAssignment(Operation* cloneFrom, Operation* cloneTo);
-
-        std::string printAssignment(Operation* op);
-        void printReport(std::ofstream& report);
-
 };
 
+#endif

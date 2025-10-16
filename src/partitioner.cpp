@@ -6,64 +6,105 @@
  *
  */
 
+#include "partitioner.h"
+
 #include <assert.h>
 #include <algorithm>
+#include <limits>
+#include <climits>
 #include <fstream>
 #include <sstream>
-#include <climits>
-
-#include "puma.h"
+#include <random>
+#include <vector>
+#include <map>
+#include <queue>
 
 #include "model.h"
 #include "operations.h"
-#include "partitioner.h"
+#include "puma.h"
 #include "tensors.h"
 
-Partitioner::Partitioner(ModelImpl* model, CompilerOptions::GraphPartitioningScheme gp)
-    : model_(model), gp_(gp)
-{
-    switch(gp_) {
-        case CompilerOptions::GP_ROW_MAJOR:
-            assignVMVMUsInRowMajor();
-            assignVCoresWithStorageType();
-            assignVTilesInVMVMUOrder();
-            break;
-        case CompilerOptions::GP_COL_MAJOR:
-            assignVMVMUsInColMajor();
-            assignVCoresWithStorageType();
-            assignVTilesInVMVMUOrder();
-            break;
-        case CompilerOptions::GP_KAHIP: // FIXME: check whether KaHIP exists
-            assignVMVMUsInRowMajor(); // Doesn't matter which order is used because KaHIP will partition agnostically
-            assignVCoresWithKaHIP();
-            assignVTilesWithKaHIP();
-            break;
-        case CompilerOptions::GP_RANDOM:
-            assignVMVMUsRandomly();
-            assignVCoresWithStorageType();
-            assignVTilesInVMVMUOrder();
-            break;
-        default: assert(0 && "Unrecognized graph partitioning scheme!");
+Partitioner::Partitioner(ModelImpl *model, CompilerOptions::GraphPartitioningScheme gp)
+    : model_(model), gp_(gp) {
+    
+    // Step 1: Assign matrix tiles to virtual MVMUs
+    if(gp_ == CompilerOptions::GP_ROW_MAJOR) {
+        assignVMVMUsInRowMajor();
+    } else if(gp_ == CompilerOptions::GP_COL_MAJOR) {
+        assignVMVMUsInColMajor();
+    } else if(gp_ == CompilerOptions::GP_RANDOM) {
+        assignVMVMUsRandomly();
     }
+    
+    // Step 2: Assign MVMUs to cores (respecting type constraints)
+    assignMVMUsToVCores();
+    
+    // Step 3: Assign all operations directly to cores
+    assignOperationsToVCores();
+    
+    // Step 4: Assign cores to tiles
+    if(gp_ == CompilerOptions::GP_ROW_MAJOR || 
+       gp_ == CompilerOptions::GP_COL_MAJOR || 
+       gp_ == CompilerOptions::GP_RANDOM) {
+        assignVTilesInVCoreOrder();
+    } else if(gp_ == CompilerOptions::GP_KAHIP) {
+        assignVTilesWithKaHIP();
+    }
+    
+    // Step 5: Insert necessary data movement operations
     insertLoadsAndStores();
     insertSendsAndRecives();
     insertInputAndOutput();
     insertCopies();
 }
 
-bool Partitioner::isVMVMUAssigned(Operation* op) {
-    return op2vmvmu_.count(op);
+bool Partitioner::isVCoreAssigned(Operation* op) {
+    return op2vcore_.count(op) > 0;
 }
 
-void Partitioner::assignVMVMU(Operation* op, unsigned int vMVMU) {
-    assert((!isVMVMUAssigned(op)) && "Cannot reassign virtual MVMU!");
-    op2vmvmu_[op] = vMVMU;
-}
-
-void Partitioner::cloneAssignment(Operation* cloneFrom, Operation* cloneTo) {
-    if(isVMVMUAssigned(cloneFrom)) {
-        assignVMVMU(cloneTo, getVMVMU(cloneFrom));
+void Partitioner::assignVCore(Operation* op, unsigned int vCore) {
+    assert(!isVCoreAssigned(op) && "Cannot reassign virtual core!");
+    op2vcore_[op] = vCore;
+    
+    // Update core weight for load balancing
+    if(vCore < coreWeights_.size()) {
+        unsigned int weight = 0;
+        if (dynamic_cast<MVMOperation*>(op)) {
+            weight = OP_WEIGHT_MVM[vcoreType_[vCore]];
+        } else if (dynamic_cast<TrainingMatrixOperation*>(op)) {
+            weight = OP_WEIGHT_TRAINING_MVM;
+        } else if (dynamic_cast<ALUVectorOperation*>(op)) {
+            weight = OP_WEIGHT_ALU;
+        } else if (dynamic_cast<LoadOperation*>(op)) {
+            weight = OP_WEIGHT_LOAD;
+        } else if (dynamic_cast<StoreOperation*>(op)) {
+            weight = OP_WEIGHT_STORE;
+        } else if (dynamic_cast<SendOperation*>(op)) {
+            weight = OP_WEIGHT_SEND;
+        } else if (dynamic_cast<ReceiveOperation*>(op)) {
+            weight = OP_WEIGHT_RECV;
+        } else if (dynamic_cast<CopyOperation*>(op)) {
+            weight = OP_WEIGHT_COPY;
+        } else if (dynamic_cast<SetImmediateOperation*>(op)) {
+            weight = OP_WEIGHT_SETI;
+        } else if (dynamic_cast<PseudoInputOperation*>(op)) {
+            weight = OP_WEIGHT_INPUT;
+        } else if (dynamic_cast<PseudoOutputOperation*>(op)) {
+            weight = OP_WEIGHT_OUTPUT;
+        } else {
+            weight = op->length(); // Fallback to length if type is unknown
+        }
+        coreWeights_[vCore] += weight;
     }
+}
+
+unsigned int Partitioner::getVCore(Operation* op) {
+    assert(isVCoreAssigned(op) && "Virtual core not assigned!");
+    return op2vcore_[op];
+}
+
+unsigned int Partitioner::getVTile(Operation* op) {
+    return vcore2vtile_[getVCore(op)];
 }
 
 unsigned int Partitioner::getVMVMU(ConstantMatrixTile* tile) {
@@ -92,560 +133,336 @@ unsigned int Partitioner::getVTile(TrainingMatrixTile* tile) {
     return vcore2vtile_[getVCore(tile)];
 }
 
-unsigned int Partitioner::getVMVMU(Operation* op) {
-    assert(isVMVMUAssigned(op) && "Virtual MVMU not assigned!");
-    return op2vmvmu_[op];
-}
-
-unsigned int Partitioner::getVCore(Operation* op) {
-    return vmvmu2vcore_[getVMVMU(op)];
-}
-
-unsigned int Partitioner::getVTile(Operation* op) {
-    return vcore2vtile_[getVCore(op)];
-}
-
-void Partitioner::assignVMVMUsInRowMajor() {
-
-    // Extract all matrix tiles in row major order
-    if(model_->getModelType() == ModelImpl::INFERENCE) {
-        for(auto m = model_->const_mat_begin(); m != model_->const_mat_end(); ++m) {
-            ConstantMatrixImpl* mat = *m;
-            for(unsigned int h = 0; h < mat->nHeightTiles(); ++h) {
-                for(unsigned int w = 0; w < mat->nWidthTiles(); ++w) {
-                    cmatTiles_.push_back(mat->getTile(h, w));
-                }
-            }
-        }
-        for(auto m = model_->conv_mat_begin(); m != model_->conv_mat_end(); ++m) {
-            ConvolutionalConstantMatrixImpl* mat = *m;
-            for(unsigned int kh = 0; kh < mat->getKernelHeight(); ++kh) {
-                for(unsigned int kw = 0; kw < mat->getKernelWidth(); ++kw) {
-                    for(unsigned int h = 0; h < mat->getNOutChannelTiles(); ++h) {
-                        for(unsigned int w = 0; w < mat->getNInChannelTiles(); ++w) {
-                            cmatTiles_.push_back(mat->getTile(kh, kw, h, w));
-                        }
-                    }
-                }
-            }
-        }
-        vmvmuType_.resize(cmatTiles_.size() + 2);
-    } else if(model_->getModelType() == ModelImpl::TRAINING) {
-        for(auto m = model_->train_mat_begin(); m != model_->train_mat_end(); ++m) {
-            TrainingMatrixImpl* mat = *m;
-            for(unsigned int h = 0; h < mat->nHeightTiles(); ++h) {
-                for(unsigned int w = 0; w < mat->nWidthTiles(); ++w) {
-                    tmatTiles_.push_back(mat->getTile(h, w));
-                }
-            }
-        }
-        vmvmuType_.resize(tmatTiles_.size() + 2);
-    }
-
-    assignVMVMUsAndSpreadAffinity();
-
-}
-
-void Partitioner::assignVMVMUsInColMajor() {
-
-    // Extract all matrix tiles in column major order
-    if(model_->getModelType() == ModelImpl::INFERENCE) {
-        for(auto m = model_->const_mat_begin(); m != model_->const_mat_end(); ++m) {
-            ConstantMatrixImpl* mat = *m;
-            for(unsigned int w = 0; w < mat->nWidthTiles(); ++w) {
-                for(unsigned int h = 0; h < mat->nHeightTiles(); ++h) {
-                    cmatTiles_.push_back(mat->getTile(h, w));
-                }
-            }
-        }
-        for(auto m = model_->conv_mat_begin(); m != model_->conv_mat_end(); ++m) {
-            ConvolutionalConstantMatrixImpl* mat = *m;
-            for(unsigned int kh = 0; kh < mat->getKernelHeight(); ++kh) {
-                for(unsigned int kw = 0; kw < mat->getKernelWidth(); ++kw) {
-                    for(unsigned int w = 0; w < mat->getNInChannelTiles(); ++w) {
-                        for(unsigned int h = 0; h < mat->getNOutChannelTiles(); ++h) {
-                            cmatTiles_.push_back(mat->getTile(kh, kw, h, w));
-                        }
-                    }
-                }
-            }
-        }
-        vmvmuType_.resize(cmatTiles_.size() + 2);
-    } else if(model_->getModelType() == ModelImpl::TRAINING) {
-        for(auto m = model_->train_mat_begin(); m != model_->train_mat_end(); ++m) {
-            TrainingMatrixImpl* mat = *m;
-            for(unsigned int w = 0; w < mat->nWidthTiles(); ++w) {
-                for(unsigned int h = 0; h < mat->nHeightTiles(); ++h) {
-                    tmatTiles_.push_back(mat->getTile(h, w));
-                }
-            }
-        }
-        vmvmuType_.resize(tmatTiles_.size() + 2);
-    }
-
-    assignVMVMUsAndSpreadAffinity();
-
-}
-
-void Partitioner::assignVMVMUsRandomly() {
-
-    // Extract all matrix tiles in row major order
-    if(model_->getModelType() == ModelImpl::INFERENCE) {
-        for(auto m = model_->const_mat_begin(); m != model_->const_mat_end(); ++m) {
-            ConstantMatrixImpl* mat = *m;
-            for(unsigned int h = 0; h < mat->nHeightTiles(); ++h) {
-                for(unsigned int w = 0; w < mat->nWidthTiles(); ++w) {
-                    cmatTiles_.push_back(mat->getTile(h, w));
-                }
-            }
-        }
-        for(auto m = model_->conv_mat_begin(); m != model_->conv_mat_end(); ++m) {
-            ConvolutionalConstantMatrixImpl* mat = *m;
-            for(unsigned int kh = 0; kh < mat->getKernelHeight(); ++kh) {
-                for(unsigned int kw = 0; kw < mat->getKernelWidth(); ++kw) {
-                    for(unsigned int h = 0; h < mat->getNOutChannelTiles(); ++h) {
-                        for(unsigned int w = 0; w < mat->getNInChannelTiles(); ++w) {
-                            cmatTiles_.push_back(mat->getTile(kh, kw, h, w));
-                        }
-                    }
-                }
-            }
-        }
-        vmvmuType_.resize(cmatTiles_.size() + 2);
-    } else if(model_->getModelType() == ModelImpl::TRAINING) {
-        for(auto m = model_->train_mat_begin(); m != model_->train_mat_end(); ++m) {
-            TrainingMatrixImpl* mat = *m;
-            for(unsigned int h = 0; h < mat->nHeightTiles(); ++h) {
-                for(unsigned int w = 0; w < mat->nWidthTiles(); ++w) {
-                    tmatTiles_.push_back(mat->getTile(h, w));
-                }
-            }
-        }
-        vmvmuType_.resize(tmatTiles_.size() + 2);
-    }
-
-    // Shuffle them randomly
-    if(model_->getModelType() == ModelImpl::INFERENCE) {
-        std::random_shuffle(cmatTiles_.begin(), cmatTiles_.end());
-    } else if(model_->getModelType() == ModelImpl::TRAINING) {
-        std::random_shuffle(tmatTiles_.begin(), tmatTiles_.end());
-    }
-
-    assignVMVMUsAndSpreadAffinity();
-
-}
-
-void Partitioner::assignVMVMUsAndSpreadAffinity() {
-
-    // Reserve virtual MVMUs 0 and 1 for input and output tiles respectively
-    nVMVMUs_ = 2;
-    vmvmuType_[0] = vmvmuType_[1] = 0; // storage type 0 for input and output tiles
-
-    // Assign matrix tiles to virtual MVMUs
-    if(model_->getModelType() == ModelImpl::INFERENCE) {
-        for(ConstantMatrixTile* tile : cmatTiles_) {
-            unsigned int vMVMU = nVMVMUs_++;
-            cmat2vmvmu_[tile] = vMVMU;
-            vmvmuType_[vMVMU] = tile->getStorageType();
-            for(unsigned int u = 0; u < tile->numUsers(); ++u) {
-                MVMOperation* mvm = tile->getUser(u);
-                assignVMVMU(mvm, vMVMU);
-                spreadVMVMUAffinityToOperands(mvm);
-                spreadVMVMUAffinityToUsers(mvm);
-            }
-        }
-    } else if(model_->getModelType() == ModelImpl::TRAINING) {
-        for(TrainingMatrixTile* tile : tmatTiles_) {
-            unsigned int vMVMU = nVMVMUs_++;
-            tmat2vmvmu_[tile] = vMVMU;
-            for(unsigned int u = 0; u < tile->numUsers(); ++u) {
-                TrainingMatrixOperation* trainOp = tile->getUser(u);
-                assignVMVMU(trainOp, vMVMU);
-                spreadVMVMUAffinityToOperands(trainOp);
-                spreadVMVMUAffinityToUsers(trainOp);
-            }
-        }
-    }
-
-    // Resolve assignment for operations with operands from different virtual MVMUs
-    for(auto it = model_->op_begin(); it != model_->op_end(); ++it) {
-        Operation* op = *it;
-        if(ConsumerOperation* consumer = dynamic_cast<ConsumerOperation*>(op)) {
-            if(!isVMVMUAssigned(consumer)) {
-                for(unsigned int o = 0; o < consumer->numOperands(); ++o) {
-                    ProducerOperation* operand = consumer->getOperand(o);
-                    if(isVMVMUAssigned(operand)) {
-                        // TODO: Heuristic for which MVMU to assign to if not all operands are assigned to MVMUs.
-                        //       Currently assigning to MVMU of first operand that is assigned (if any).
-                        cloneAssignment(operand, consumer);
-                        spreadVMVMUAffinityToOperands(consumer);
-                        if(ProducerOperation* producer = dynamic_cast<ProducerOperation*>(consumer)) {
-                            spreadVMVMUAffinityToUsers(producer);
-                        }
-                        break;
-                    }
-                }
-            }
-        }
-    }
-
-}
-
-void Partitioner::spreadVMVMUAffinityToOperands(ConsumerOperation* op) {
-    for(unsigned int o = 0; o < op->numOperands(); ++o) {
-        ProducerOperation* producer = op->getOperand(o);
-        if(!isVMVMUAssigned(producer) && !dynamic_cast<MVMOperation*>(producer) && !dynamic_cast<TrainingMatrixOperation*>(producer)) {
-            bool allUsersAssigned = true;
-            for(auto u = producer->user_begin(); u != producer->user_end(); ++u) {
-                ConsumerOperation* consumer = *u;
-                if(!isVMVMUAssigned(consumer)) {
-                    allUsersAssigned = false;
-                    break;
-                }
-            }
-            if(allUsersAssigned) {
-                // TODO: Heuristic for which MVMU to select if users assigned to different MVMUs.
-                //       Currently just assigning to same MVMU as last user processed.
-                cloneAssignment(op, producer);
-                if(ConsumerOperation* consumer = dynamic_cast<ConsumerOperation*>(producer)) {
-                    spreadVMVMUAffinityToOperands(consumer);
-                }
-            }
-        }
-    }
-}
-
-void Partitioner::spreadVMVMUAffinityToUsers(ProducerOperation* op) {
-    for(auto u = op->user_begin(); u != op->user_end(); ++u) {
-        ConsumerOperation* consumer = *u;
-        if(!isVMVMUAssigned(consumer) && !dynamic_cast<MVMOperation*>(consumer) && !dynamic_cast<TrainingMatrixOperation*>(consumer)) {
-            bool allOperandsAssigned = true;
-            for(unsigned int o = 0; o < consumer->numOperands(); ++o) {
-                ProducerOperation* producer = consumer->getOperand(o);
-                if(!isVMVMUAssigned(producer)) {
-                    allOperandsAssigned = false;
-                    break;
-                }
-            }
-            if(allOperandsAssigned) {
-                // TODO: Heuristic for which MVMU to select if operands assigned to different MVMUs.
-                //       Currently just assigning to same MVMU as last operand processed.
-                cloneAssignment(op, consumer);
-                if(ProducerOperation* producer = dynamic_cast<ProducerOperation*>(consumer)) {
-                    spreadVMVMUAffinityToUsers(producer);
-                }
-            }
-        }
-    }
-
-}
-
-void Partitioner::assignVCoresInVMVMUOrder() {
-
-    vmvmu2vcore_.resize(nVMVMUs_);
-
-    // Reserve virtual cores 0 and 1 for input and output tiles respectively
-    nVCores_ = 2;
-    vmvmu2vcore_[0] = 0;
-    vmvmu2vcore_[1] = 1;
-
-    // Assign virtual MVMUs to virtual cores in order
-    unsigned int nMVMUSPerCore = (model_->getModelType() == ModelImpl::INFERENCE)?(N_CONSTANT_MVMUS_PER_CORE):(N_TRAINING_MVMUS_PER_CORE);
-    nVCores_ += (nVMVMUs_ - 2 - 1)/nMVMUSPerCore + 1; // -2 accounts for virtual MVMUs 0 and 1 which are reserved for input and output
-    for(unsigned int vMVMU = 2; vMVMU < nVMVMUs_; ++vMVMU) {
-        vmvmu2vcore_[vMVMU] = (vMVMU - 2)/nMVMUSPerCore + 2;
-    }
-
-}
-
-void Partitioner::assignVTilesInVMVMUOrder() {
-
-    vcore2vtile_.resize(nVCores_);
-
-    // Reserve virtual tiles 0 and 1 for input and output tiles respectively
-    nVTiles_ = 2;
-    vcore2vtile_[0] = 0;
-    vcore2vtile_[1] = 1;
-
-    // Assign virtual cores to virtual tiles in order
-    nVTiles_ += (nVCores_ - 2 - 1)/N_CORES_PER_TILE + 1; // -2 accounts for virtual cores 0 and 1 which are reserved for input and output
-    for(unsigned int vCore = 2; vCore < nVCores_; ++vCore) {
-        vcore2vtile_[vCore] = (vCore - 2)/N_CORES_PER_TILE + 2;;
-    }
-
-}
-
-void partitionGraphWithKaHIP(unsigned int numNodes, unsigned int numEdges, unsigned int numNodesPerPartition, std::vector<std::pair<unsigned int, unsigned int>>* edges, std::vector<unsigned int>& result) {
-
-    // Output graph file
-    std::ofstream graphOut("kahip_input.graph", std::ofstream::out);
-    graphOut << numNodes << " " << numEdges << " 11" << std::endl;
-    for(unsigned int node = 0; node < numNodes; ++node) {
-        graphOut << "1 "; // All nodes have weight 1
-        for(auto edge : edges[node]) {
-            graphOut << edge.first + 1 /* destination node */ << " " << edge.second /* edge weight */ << " ";
-        }
-        graphOut << std::endl;
-    }
-    graphOut.close();
-
-    // Execute KaHIP command
-    std::stringstream cmd; 
-    unsigned int numPartitions = (numNodes - 1)/numNodesPerPartition + 1;
-    double imbalance = (double)(numPartitions*numNodesPerPartition)/((double)(numNodes)) - 1;
-    cmd << "kaffpaE ./kahip_input.graph --k=" << numPartitions << " --imbalance="<< imbalance
-        << " --preconfiguration=strong --output_filename=kahip_partition_result"; 
-    system(cmd.str().c_str());
-
-    // Input result file
-    std::ifstream resultIn("kahip_partition_result", std::ifstream::in);
-    for(unsigned int node = 0; node < numNodes; ++node) {
-        resultIn >> result[node];
-    }
-    resultIn.close();
-
-}
-
-void Partitioner::assignVCoresWithKaHIP() {
-
-    // Build graph
-    unsigned int numNodes = nVMVMUs_ - 2;
-    unsigned int numEdges = 0;
-    std::vector<std::pair<unsigned int, unsigned int>> edges[numNodes];
-    for(auto it = model_->op_begin(); it != model_->op_end(); ++it) {
-        Operation* op = *it;
-        if(ProducerOperation* producer = dynamic_cast<ProducerOperation*>(op)) {
-            unsigned int producerNodeID = getVMVMU(producer) - 2;
-            for(auto u = producer->user_begin(); u != producer->user_end(); ++u) {
-                ConsumerOperation* consumer = *u;
-                unsigned int consumerNodeID = getVMVMU(consumer) - 2;
-                if(producerNodeID != consumerNodeID) {
-                    edges[producerNodeID].push_back(std::make_pair(consumerNodeID, producer->length()));
-                    edges[consumerNodeID].push_back(std::make_pair(producerNodeID, producer->length()));
-                    ++numEdges;
-                }
-            }
-        }
-    }
-
-    // Call KaHIP
-    unsigned int nMVMUSPerCore = (model_->getModelType() == ModelImpl::INFERENCE)?(N_CONSTANT_MVMUS_PER_CORE):(N_TRAINING_MVMUS_PER_CORE);
-    unsigned int numNodesPerPartition = nMVMUSPerCore;
-    std::vector<unsigned int> result(numNodes);
-    partitionGraphWithKaHIP(numNodes, numEdges, numNodesPerPartition, edges, result);
-
-    // Process result
-    unsigned int numPartitions = (numNodes - 1)/numNodesPerPartition + 1;
-    nVCores_ = numPartitions + 2;
-    vmvmu2vcore_.resize(nVMVMUs_);
-    vmvmu2vcore_[0] = 0;
-    vmvmu2vcore_[1] = 1;
-    for(unsigned int node = 0; node < numNodes; ++node) {
-        vmvmu2vcore_[node + 2] = result[node] + 2;
-    }
-
-}
-
-void Partitioner::assignVTilesWithKaHIP() {
-
-    // Build graph
-    unsigned int numNodes = nVCores_ - 2;
-    unsigned int numEdges = 0;
-    std::vector<std::pair<unsigned int, unsigned int>> edges[numNodes];
-    for(auto it = model_->op_begin(); it != model_->op_end(); ++it) {
-        Operation* op = *it;
-        if(ProducerOperation* producer = dynamic_cast<ProducerOperation*>(op)) {
-            unsigned int producerNodeID = getVCore(producer) - 2;
-            for(auto u = producer->user_begin(); u != producer->user_end(); ++u) {
-                ConsumerOperation* consumer = *u;
-                unsigned int consumerNodeID = getVCore(producer) - 2;
-                if(producerNodeID != consumerNodeID) {
-                    edges[producerNodeID].push_back(std::make_pair(consumerNodeID, producer->length()));
-                    edges[consumerNodeID].push_back(std::make_pair(producerNodeID, producer->length()));
-                    ++numEdges;
-                }
-            }
-        }
-    }
-
-    // Call KaHIP
-    unsigned int numNodesPerPartition = N_CORES_PER_TILE;
-    std::vector<unsigned int> result(numNodes);
-    partitionGraphWithKaHIP(numNodes, numEdges, numNodesPerPartition, edges, result);
-
-    // Process result
-    unsigned int numPartitions = (numNodes - 1)/numNodesPerPartition + 1;
-    nVTiles_ = numPartitions + 2;
-    vcore2vtile_.resize(nVCores_);
-    vcore2vtile_[0] = 0;
-    vcore2vtile_[1] = 1;
-    for(unsigned int node = 0; node < numNodes; ++node) {
-        vcore2vtile_[node + 2] = result[node] + 2;
-    }
-
-}
-
-void Partitioner::assignVCoresWithStorageType() {
-
-    // Assign virtual cores based on storage type
-    vmvmu2vcore_.resize(nVMVMUs_);
+void Partitioner::assignMVMUsToVCores() {
+    // Initialize core tracking
+    unsigned int nMVMUSPerCore = (model_->getModelType() == ModelImpl::INFERENCE) ? 
+                                  N_CONSTANT_MVMUS_PER_CORE : N_TRAINING_MVMUS_PER_CORE;
     
-    // Reserve virtual cores 0 and 1 for input and output tiles respectively
+    // Reserve virtual cores 0 and 1 for input and output
     nVCores_ = 2;
-    vmvmu2vcore_[0] = 0;
-    vmvmu2vcore_[1] = 1;
     vcoreType_.resize(2);
-    vcoreType_[0] = vcoreType_[1] = 0; // storage type 0 for input and output tiles
-
-    unsigned int typeCounterMVMU[N_STORAGE_TYPES] = {2, 0}; // Counter for each storage type for MVMUs, 2 for input and output MVMUs
-    unsigned int lastCoreOfType[N_STORAGE_TYPES] = {0};
-    unsigned int nMVMUSPerCore = (model_->getModelType() == ModelImpl::INFERENCE) ? (N_CONSTANT_MVMUS_PER_CORE) : (N_TRAINING_MVMUS_PER_CORE);
-
-    // Assign virtual MVMUs to virtual cores in order
-    for (unsigned int vmvmu = 2; vmvmu < nVMVMUs_; ++vmvmu) { // Iterate over mvmus
-        unsigned int type = vmvmuType_[vmvmu];
-        ++typeCounterMVMU[type];
-        if (typeCounterMVMU[type] % nMVMUSPerCore == 1) { // If this is the first MVMU of the core
+    vcoreType_[0] = vcoreType_[1] = 0;
+    
+    // Initialize MVMU to core mapping
+    vmvmu2vcore_[0] = 0;  // Input MVMU
+    vmvmu2vcore_[1] = 1;  // Output MVMU
+    
+    // Initialize core MVMUs tracking
+    coreMVMUs_.resize(N_MAX_CORES);
+    coreMVMUs_[0].insert(0);
+    coreMVMUs_[1].insert(1);
+    
+    // Group MVMUs by type
+    std::map<unsigned int, std::vector<unsigned int>> mvmusByType;
+    for(unsigned int vMVMU = 2; vMVMU < nVMVMUs_; ++vMVMU) {
+        mvmusByType[vmvmuType_[vMVMU]].push_back(vMVMU);
+    }
+    
+    // Assign MVMUs to cores, ensuring one type per core
+    for(auto& [type, mvmus] : mvmusByType) {
+        unsigned int mvmusAssigned = 0;
+        while(mvmusAssigned < mvmus.size()) {
             unsigned int vCore = nVCores_++;
-            vcoreType_.push_back(type); // Assign storage type to the core
-            lastCoreOfType[type] = vCore; // Update last core of this type
-            vmvmu2vcore_[vmvmu] = vCore;
+            vcoreType_.push_back(type);
+            
+            // Assign up to nMVMUSPerCore MVMUs to this core
+            for(unsigned int i = 0; i < nMVMUSPerCore && mvmusAssigned < mvmus.size(); ++i) {
+                unsigned int vMVMU = mvmus[mvmusAssigned];
+                vmvmu2vcore_[vMVMU] = vCore;
+                coreMVMUs_[vCore].insert(vMVMU);
+                mvmusAssigned++;
+            }
+        }
+    }
+    
+    // Initialize core weights for load balancing
+    coreWeights_.resize(nVCores_, 0);
+}
+
+unsigned int Partitioner::calculateCommCost(Operation* op, unsigned int vCore) {
+    unsigned int commCost = 0;
+    
+    // Calculate communication cost from operands
+    if(ConsumerOperation* consumer = dynamic_cast<ConsumerOperation*>(op)) {
+        for(unsigned int o = 0; o < consumer->numOperands(); ++o) {
+            ProducerOperation* operand = consumer->getOperand(o);
+            if(isVCoreAssigned(operand) && getVCore(operand) != vCore) {
+                commCost += operand->length();
+            }
+        }
+    }
+    
+    // Calculate communication cost to users
+    if(ProducerOperation* producer = dynamic_cast<ProducerOperation*>(op)) {
+        for(auto u = producer->user_begin(); u != producer->user_end(); ++u) {
+            ConsumerOperation* user = *u;
+            if(isVCoreAssigned(user) && getVCore(user) != vCore) {
+                commCost += producer->length();
+            }
+        }
+    }
+    
+    return commCost;
+}
+
+unsigned int Partitioner::findBestCoreForOperation(Operation* op) {
+    unsigned int bestCore = 2;  // Start from first non-reserved core
+    int bestScore = INT_MAX;
+    
+    for(unsigned int vCore = 2; vCore < nVCores_; ++vCore) {
+        // Calculate score: current load + operation weight
+        unsigned int weight = 0;
+        if (dynamic_cast<MVMOperation*>(op)) {
+            weight = OP_WEIGHT_MVM[vcoreType_[vCore]];
+        } else if (dynamic_cast<TrainingMatrixOperation*>(op)) {
+            weight = OP_WEIGHT_TRAINING_MVM;
+        } else if (dynamic_cast<ALUVectorOperation*>(op)) {
+            weight = OP_WEIGHT_ALU;
+        } else if (dynamic_cast<LoadOperation*>(op)) {
+            weight = OP_WEIGHT_LOAD;
+        } else if (dynamic_cast<StoreOperation*>(op)) {
+            weight = OP_WEIGHT_STORE;
+        } else if (dynamic_cast<SendOperation*>(op)) {
+            weight = OP_WEIGHT_SEND;
+        } else if (dynamic_cast<ReceiveOperation*>(op)) {
+            weight = OP_WEIGHT_RECV;
+        } else if (dynamic_cast<CopyOperation*>(op)) {
+            weight = OP_WEIGHT_COPY;
+        } else if (dynamic_cast<SetImmediateOperation*>(op)) {
+            weight = OP_WEIGHT_SETI;
         } else {
-            vmvmu2vcore_[vmvmu] = lastCoreOfType[type]; // Assign to the last core of this type
+            weight = op->length(); // Fallback
+        }
+        int score = coreWeights_[vCore] + weight;
+        
+        // Subtract communication benefit (operations on same core don't need communication)
+        unsigned int localCommBenefit = 0;
+        
+        // Check communication with operands
+        if(ConsumerOperation* consumer = dynamic_cast<ConsumerOperation*>(op)) {
+            for(unsigned int o = 0; o < consumer->numOperands(); ++o) {
+                ProducerOperation* operand = consumer->getOperand(o);
+                if(isVCoreAssigned(operand) && getVCore(operand) == vCore) {
+                    localCommBenefit += operand->length() * 2;  // Weight local communication benefit
+                }
+            }
+        }
+        
+        // Check communication with users
+        if(ProducerOperation* producer = dynamic_cast<ProducerOperation*>(op)) {
+            for(auto u = producer->user_begin(); u != producer->user_end(); ++u) {
+                ConsumerOperation* user = *u;
+                if(isVCoreAssigned(user) && getVCore(user) == vCore) {
+                    localCommBenefit += producer->length() * 2;  // Weight local communication benefit
+                }
+            }
+        }
+        
+        score -= localCommBenefit;
+        
+        // Add penalty for remote communication
+        score += calculateCommCost(op, vCore);
+        
+        if(score < bestScore) {
+            bestScore = score;
+            bestCore = vCore;
+        }
+    }
+    
+    return bestCore;
+}
+
+void Partitioner::assignOperationsToVCores() {
+    // First pass: Assign MVM operations to cores based on their MVMU placement
+    for(auto it = model_->op_begin(); it != model_->op_end(); ++it) {
+        Operation* op = *it;
+        
+        if(MVMOperation* mvm = dynamic_cast<MVMOperation*>(op)) {
+            ConstantMatrixTile* tile = mvm->getMatrix();
+            unsigned int vMVMU = getVMVMU(tile);
+            unsigned int vCore = vmvmu2vcore_[vMVMU];
+            assignVCore(mvm, vCore);
+        } else if(TrainingMatrixOperation* trainOp = dynamic_cast<TrainingMatrixOperation*>(op)) {
+            TrainingMatrixTile* tile = trainOp->getMatrix();
+            unsigned int vMVMU = getVMVMU(tile);
+            unsigned int vCore = vmvmu2vcore_[vMVMU];
+            assignVCore(trainOp, vCore);
+        }
+    }
+    
+    // Second pass: Use a priority queue to assign remaining operations
+    using PQElement = std::pair<int, Operation*>;
+    std::priority_queue<PQElement> pq;
+    std::map<Operation*, int> connectivity;
+
+    // Initialize priority queue with all unassigned operations
+    for(auto it = model_->op_begin(); it != model_->op_end(); ++it) {
+        Operation* op = *it;
+        if(!isVCoreAssigned(op)) {
+            int conn = 0;
+            if(ConsumerOperation* cons = dynamic_cast<ConsumerOperation*>(op)) {
+                for(unsigned int o = 0; o < cons->numOperands(); ++o) {
+                    if(isVCoreAssigned(cons->getOperand(o))) conn++;
+                }
+            }
+            if(ProducerOperation* prod = dynamic_cast<ProducerOperation*>(op)) {
+                for(auto u = prod->user_begin(); u != prod->user_end(); ++u) {
+                    if(isVCoreAssigned(*u)) conn++;
+                }
+            }
+            connectivity[op] = conn;
+            pq.push({conn, op});
+        }
+    }
+
+    // Process operations from the priority queue
+    while(!pq.empty()) {
+        Operation* op = pq.top().second;
+        pq.pop();
+
+        // Skip if already assigned (stale entry in queue)
+        if(isVCoreAssigned(op)) {
+            continue;
+        }
+
+        // Assign the operation to the best core
+        unsigned int bestCore = findBestCoreForOperation(op);
+        assignVCore(op, bestCore);
+
+        // Update connectivity of its neighbors
+        // Operands' users
+        if(ConsumerOperation* cons = dynamic_cast<ConsumerOperation*>(op)) {
+            for(unsigned int o = 0; o < cons->numOperands(); ++o) {
+                ProducerOperation* operand = cons->getOperand(o);
+                if(ProducerOperation* prod = dynamic_cast<ProducerOperation*>(operand)) {
+                    for(auto u = prod->user_begin(); u != prod->user_end(); ++u) {
+                        if(!isVCoreAssigned(*u)) {
+                            connectivity[*u]++;
+                            pq.push({connectivity[*u], *u});
+                        }
+                    }
+                }
+            }
+        }
+        // Users' operands
+        if(ProducerOperation* prod = dynamic_cast<ProducerOperation*>(op)) {
+            for(auto u = prod->user_begin(); u != prod->user_end(); ++u) {
+                if(ConsumerOperation* consumer = dynamic_cast<ConsumerOperation*>(*u)) {
+                     if(!isVCoreAssigned(consumer)) {
+                        connectivity[consumer]++;
+                        pq.push({connectivity[consumer], consumer});
+                    }
+                }
+            }
+        }
+    }
+    
+    // Third pass: Handle any remaining unassigned operations (shouldn't happen, but safety check)
+    for(auto it = model_->op_begin(); it != model_->op_end(); ++it) {
+        Operation* op = *it;
+        if(!isVCoreAssigned(op)) {
+            // Find core with minimum weight
+            unsigned int minCore = 2;
+            unsigned int minWeight = coreWeights_[2];
+            for(unsigned int vCore = 3; vCore < nVCores_; ++vCore) {
+                if(coreWeights_[vCore] < minWeight) {
+                    minWeight = coreWeights_[vCore];
+                    minCore = vCore;
+                }
+            }
+            assignVCore(op, minCore);
         }
     }
 }
 
-void Partitioner::assignVTilesWithStorageType() {
-
-    vcore2vtile_.resize(nVCores_);
-
-    // Reserve virtual tiles 0 and 1 for input and output tiles respectively
-    nVTiles_ = 2;
-    vcore2vtile_[0] = 0;
-    vcore2vtile_[1] = 1;
-
-    // Assign virtual cores to virtual tiles in order
-    nVTiles_ += (nVCores_ - 2 - 1) / N_CORES_PER_TILE + 1; // -2 accounts for virtual cores 0 and 1 which are reserved for input and output
-    for (unsigned int vCore = 2; vCore < nVCores_; ++vCore)
-    {
-        vcore2vtile_[vCore] = (vCore - 2) / N_CORES_PER_TILE + 2;
+void Partitioner::assignVTilesInVCoreOrder() {
+    for(unsigned int vCore = 0; vCore < nVCores_; ++vCore) {
+        vcore2vtile_[vCore] = vCore;
     }
+    nVTiles_ = nVCores_;
+    
 }
 
 void Partitioner::insertLoadsAndStores() {
-
-    // Insert loads and stores across cores
+    // Insert loads and stores for inter-core communication
     for(auto it = model_->op_begin(); it != model_->op_end(); ++it) {
         Operation* op = *it;
         if(ProducerOperation* producer = dynamic_cast<ProducerOperation*>(op)) {
-            StoreOperation* store = NULL;
+            StoreOperation* store = nullptr;
             std::map<unsigned int, LoadOperation*> loads;
+            
             for(auto u = producer->user_begin(); u != producer->user_end(); ) {
                 ConsumerOperation* consumer = *u;
-                ++u; // replaceOperand may remove consumer from producer's users
-
+                ++u;  // Increment before potential modification
+                
                 if(getVCore(producer) != getVCore(consumer)) {
-                    if(store == NULL) {
+                    // Need inter-core communication
+                    if(store == nullptr) {
                         store = new StoreOperation(model_, producer);
                         numStores_ += store->length();
-                        cloneAssignment(producer, store);
+                        assignVCore(store, getVCore(producer));
                     }
-                    /* TODO This code is commented out because it need more debugging, right now we use a simpler but less efficient version
-                    if (VectorRebuildOperation* vro = dynamic_cast<VectorRebuildOperation*>(consumer)) {
-                        // We will generate a partial load operation to save memory for VectorRebuildOperation
-                        // Therefore, we will not check if the load is already created.
-
-                        // Find the needed part of the producer
-                        // The indices and places are not the same for the load and the producer, so regenerate them
-                        unsigned int start = UINT_MAX, end = 0;
-                        for (auto i = vro->getIndexBegin(producer); i != vro->getIndexEnd(producer); ++i) {
-                            start = std::min(start, *i);
-                            end = std::max(end, *i);
-                        }
-                        // Create the load operation by range just found
-                        LoadOperation* load = new LoadOperation(model_, store, true, start, end - start + 1);
-                        numLoads_ += load->getDataLength(); // length = length, but dataLength = end - start + 1, here we will store dataLength
-                        cloneAssignment(vro, load);
-                        vro->replaceOperand(producer, load);
-                        vro->updatePlaceAndIndex(producer, load);
-                        
+                    
+                    unsigned int consumerCore = getVCore(consumer);
+                    if(loads[consumerCore] == nullptr) {
+                        loads[consumerCore] = new LoadOperation(model_, store);
+                        numLoads_ += loads[consumerCore]->length();
+                        assignVCore(loads[consumerCore], consumerCore);
                     }
-                    else {
-                        if(loads[getVCore(consumer)] == NULL) {
-                            LoadOperation* load = new LoadOperation(model_, store);
-                            numLoads_ += load->length();
-                            cloneAssignment(consumer, load);
-                            loads[getVCore(consumer)] = load;
-                        }
-                        consumer->replaceOperand(producer, loads[getVCore(consumer)]);
-                    }
-                    */
-                    if(loads[getVCore(consumer)] == NULL) {
-                        LoadOperation* load = new LoadOperation(model_, store);
-                        numLoads_ += load->length();
-                        cloneAssignment(consumer, load);
-                        loads[getVCore(consumer)] = load;
-                    }
-                    consumer->replaceOperand(producer, loads[getVCore(consumer)]);
-                    if (VectorRebuildOperation* vro = dynamic_cast<VectorRebuildOperation*>(consumer)) {
-                        vro->updatePlaceAndIndex(producer, loads[getVCore(consumer)]);
-                    }
+                    
+                    consumer->replaceOperand(producer, loads[consumerCore]);
                 }
             }
         }
     }
-
 }
 
 void Partitioner::insertSendsAndRecives() {
-
-    // Insert sends and receives across tiles
+    // Insert sends and receives for inter-tile communication
     for(auto it = model_->op_begin(); it != model_->op_end(); ++it) {
         Operation* op = *it;
         if(StoreOperation* store = dynamic_cast<StoreOperation*>(op)) {
-            std::map<unsigned int, ReceiveOperation*> recvs;
+            SendOperation* send = nullptr;
+            std::map<unsigned int, ReceiveOperation*> receives;
+            
             for(auto u = store->user_begin(); u != store->user_end(); ) {
                 TileMemoryReadOperation* read = *u;
-                ++u; // replaceSrc may remove read from store's users
-                // TODO: Send can be partial if read operation is a VectorRebuildOperation
-                if(getVTile(store) != getVTile(read)) {
-                    if(recvs[getVTile(read)] == NULL) {
+                ++u;
+                if (getVTile(store) != getVTile(read)) {
+                    if (receives[getVTile(read)] == NULL) {
                         SendOperation* send = new SendOperation(model_, store);
                         numSends_ += send->length();
                         cloneAssignment(store, send);
                         ReceiveOperation* recv = new ReceiveOperation(model_, send);
                         numReceives_ += recv->length();
                         cloneAssignment(read, recv);
-                        recvs[getVTile(read)] = recv;
+                        receives[getVTile(read)] = recv;
                     }
-                    read->replaceSrc(store, recvs[getVTile(read)]);
+                    read->replaceSrc(store, receives[getVTile(read)]);
                 }
             }
         }
     }
-
 }
 
 void Partitioner::insertInputAndOutput() {
-
     // Replace pseudo input and output operations
     std::map<InputVectorTile*, std::map<unsigned int, LoadOperation*>> loads;
     std::map<InputVectorTile*, std::map<unsigned int, ReceiveOperation*>> recvs;
     std::map<InputVectorTile*, WriteInputOperation*> inputs;
-    for(auto it = model_->op_begin(); it != model_->op_end(); ) {
+    for (auto it = model_->op_begin(); it != model_->op_end();) {
         Operation* op = *it;
-        ++it; // op might get removed from the graph
-        if(PseudoInputOperation* pseudoInput = dynamic_cast<PseudoInputOperation*>(op)) {
+        ++it;  // op might get removed from the graph
+        if (PseudoInputOperation* pseudoInput = dynamic_cast<PseudoInputOperation*>(op)) {
             InputVectorTile* src = pseudoInput->getSrc();
-            for(auto u = pseudoInput->user_begin(); u != pseudoInput->user_end(); ) {
+            for (auto u = pseudoInput->user_begin(); u != pseudoInput->user_end();) {
                 ConsumerOperation* consumer = *u;
-                ++u; // replaceOperand may remove consumer from pseudoInput's users
-                if(loads[src][getVCore(consumer)] == NULL) {
-                    if(recvs[src][getVTile(consumer)] == NULL) {
-                        if(inputs[src] == NULL) {
+                ++u;  // replaceOperand may remove consumer from pseudoInput's users
+                if (loads[src][getVCore(consumer)] == NULL) {
+                    if (recvs[src][getVTile(consumer)] == NULL) {
+                        if (inputs[src] == NULL) {
                             WriteInputOperation* input = new WriteInputOperation(model_, src);
-                            assignVMVMU(input, 0);
+                            assignVCore(input, 0);
                             inputs[src] = input;
                         }
                         SendOperation* send = new SendOperation(model_, inputs[src]);
@@ -664,9 +481,9 @@ void Partitioner::insertInputAndOutput() {
                 consumer->replaceOperand(pseudoInput, loads[src][getVCore(consumer)]);
             }
             unlink(pseudoInput);
-        } else if(PseudoOutputOperation* pseudoOutput = dynamic_cast<PseudoOutputOperation*>(op)) {
+        } else if (PseudoOutputOperation* pseudoOutput = dynamic_cast<PseudoOutputOperation*>(op)) {
             OutputVectorTile* dst = pseudoOutput->getDst();
-            for(unsigned int o = 0; o < pseudoOutput->numOperands(); ++o) {
+            for (unsigned int o = 0; o < pseudoOutput->numOperands(); ++o) {
                 ProducerOperation* producer = pseudoOutput->getOperand(o);
                 StoreOperation* store = new StoreOperation(model_, producer);
                 numStores_ += store->length();
@@ -676,7 +493,7 @@ void Partitioner::insertInputAndOutput() {
                 cloneAssignment(pseudoOutput, send);
                 ReceiveOperation* recv = new ReceiveOperation(model_, send);
                 numReceives_ += recv->length();
-                assignVMVMU(recv, 1);
+                assignVCore(recv, 1);
                 ReadOutputOperation* output = new ReadOutputOperation(model_, recv, dst);
                 cloneAssignment(recv, output);
                 producer->removeUser(pseudoOutput);
@@ -684,32 +501,37 @@ void Partitioner::insertInputAndOutput() {
             unlink(pseudoOutput);
         }
     }
-
 }
 
 void Partitioner::insertCopies() {
-
-    // Insert copy operations across producers and consumers that use different register spaces
-    for(auto it = model_->op_begin(); it != model_->op_end(); ++it) {
+    // Insert copy operations across producers and consumers that use different
+    // register spaces
+    for (auto it = model_->op_begin(); it != model_->op_end(); ++it) {
         Operation* op = *it;
-        if(ConsumerOperation* consumer = dynamic_cast<ConsumerOperation*>(op)) {
-            bool isMatrixOperation = (dynamic_cast<MVMOperation*>(consumer) != NULL) || (dynamic_cast<TrainingMatrixOperation*>(consumer) != NULL);
-            if(isMatrixOperation) {
-                for(unsigned int o = 0; o < consumer->numOperands(); ++o) {
+        if (ConsumerOperation* consumer = dynamic_cast<ConsumerOperation*>(op)) {
+            bool isMatrixOperation = (dynamic_cast<MVMOperation*>(consumer) != NULL) ||
+                                     (dynamic_cast<TrainingMatrixOperation*>(consumer) != NULL);
+            if (isMatrixOperation) {
+                for (unsigned int o = 0; o < consumer->numOperands(); ++o) {
                     ProducerOperation* producer = consumer->getOperand(o);
-                    bool producerIsMatrixOperation = (dynamic_cast<MVMOperation*>(consumer) != NULL) || (dynamic_cast<TrainingMatrixOperation*>(consumer) != NULL);
+                    bool producerIsMatrixOperation =
+                        (dynamic_cast<MVMOperation*>(producer) != NULL) ||
+                        (dynamic_cast<TrainingMatrixOperation*>(producer) != NULL);
                     bool producerHasMultipleUsers = (producer->numUsers() > 1);
-                    if(producerIsMatrixOperation || producerHasMultipleUsers) {
+                    if (producerIsMatrixOperation || producerHasMultipleUsers) {
                         /*
                          * producerIsMatrixOperation:
-                         * Matrix operations write their outputs to reserved output registers which cannot be read by other matrix
-                         * operations which read from reserved input registers. Therefore if a matrix operation feeds another matrix
-                         * operation, a copy must be inserted between them.
+                         * Matrix operations write their outputs to reserved output
+                         * registers which cannot be read by other matrix operations which
+                         * read from reserved input registers. Therefore if a matrix
+                         * operation feeds another matrix operation, a copy must be inserted
+                         * between them.
                          *
                          * producerHasMultipleUsers:
-                         * If a producer has multiple users, it can't be assigned to the reserved input registers of one matrix
-                         * operation because the other users also need to access it. Therefore, a copy is inserted to the matix
-                         * operation.
+                         * If a producer has multiple users, it can't be assigned to the
+                         * reserved input registers of one matrix operation because the
+                         * other users also need to access it. Therefore, a copy is inserted
+                         * to the matix operation.
                          */
                         CopyOperation* copy = new CopyOperation(model_, producer);
                         cloneAssignment(consumer, copy);
@@ -719,49 +541,210 @@ void Partitioner::insertCopies() {
             }
         }
     }
+}
 
+void Partitioner::cloneAssignment(Operation* cloneFrom, Operation* cloneTo) {
+    if(isVCoreAssigned(cloneFrom)) {
+        assignVCore(cloneTo, getVCore(cloneFrom));
+    }
 }
 
 void Partitioner::unlink(Operation* op) {
-    op2vmvmu_.erase(op);
+    op2vcore_.erase(op);
     model_->unlink(op);
 }
 
 std::string Partitioner::printAssignment(Operation* op) {
     std::stringstream ss;
-    if(isVMVMUAssigned(op)) {
-        ss << "\nvMVMU = " << getVMVMU(op);
-    }
-    if(vmvmu2vcore_.size() > 0) {
-        ss << ", vCore = " << getVCore(op);
-    }
-    if(vcore2vtile_.size() > 0) {
+    if(isVCoreAssigned(op)) {
+        ss << "\nvCore = " << getVCore(op);
         ss << ", vTile = " << getVTile(op);
     }
     return ss.str();
 }
 
 void Partitioner::printReport(std::ofstream& report) {
-    switch(gp_) {
-        case CompilerOptions::GP_ROW_MAJOR:
-            report << "graph partitioning scheme = row major" << std::endl;
-            break;
-        case CompilerOptions::GP_COL_MAJOR:
-            report << "graph partitioning scheme = column major" << std::endl;
-            break;
-        case CompilerOptions::GP_KAHIP: // FIXME: check whether KaHIP exists
-            report << "graph partitioning scheme = KaHIP" << std::endl;
-            break;
-        case CompilerOptions::GP_RANDOM:
-            report << "graph partitioning scheme = random" << std::endl;
-            break;
-        default: assert(0 && "Unrecognized graph partitioning scheme!");
+    report << "Partitioner Report:" << std::endl;
+    report << "  Number of virtual MVMUs: " << nVMVMUs_ << std::endl;
+    report << "  Number of virtual cores: " << nVCores_ << std::endl;
+    report << "  Number of virtual tiles: " << nVTiles_ << std::endl;
+    report << "  Number of loads inserted: " << numLoads_ << std::endl;
+    report << "  Number of stores inserted: " << numStores_ << std::endl;
+    report << "  Number of sends inserted: " << numSends_ << std::endl;
+    report << "  Number of receives inserted: " << numReceives_ << std::endl;
+    
+    // Print core load distribution
+    report << "\nCore Load Distribution:" << std::endl;
+    for(unsigned int vCore = 0; vCore < nVCores_; ++vCore) {
+        report << "  Core " << vCore << ": " << coreWeights_[vCore] << " operations";
+        if(!coreMVMUs_[vCore].empty()) {
+            report << " (MVMUs:";
+            for(unsigned int mvmu : coreMVMUs_[vCore]) {
+                report << " " << mvmu;
+            }
+            report << ")";
+        }
+        report << std::endl;
     }
-    report << "# load bytes = " << numLoads_ << std::endl;
-    report << "# store bytes = " << numStores_ << std::endl;
-    report << "# load + store bytes = " << numLoads_ + numStores_ << std::endl;
-    report << "# send bytes = " << numSends_ << std::endl;
-    report << "# receive bytes = " << numReceives_ << std::endl;
-    report << "# send + receive bytes = " << numSends_ + numReceives_ << std::endl;
 }
 
+// Implement the MVMU assignment functions
+void Partitioner::assignVMVMUsInRowMajor() {
+    // Extract all matrix tiles in row major order
+    if (model_->getModelType() == ModelImpl::INFERENCE) {
+        for (auto m = model_->const_mat_begin(); m != model_->const_mat_end(); ++m) {
+            ConstantMatrixImpl* mat = *m;
+            for (unsigned int h = 0; h < mat->nHeightTiles(); ++h) {
+                for (unsigned int w = 0; w < mat->nWidthTiles(); ++w) {
+                    cmatTiles_.push_back(mat->getTile(h, w));
+                }
+            }
+        }
+        for (auto m = model_->conv_mat_begin(); m != model_->conv_mat_end(); ++m) {
+            ConvolutionalConstantMatrixImpl* mat = *m;
+            for (unsigned int kh = 0; kh < mat->getKernelHeight(); ++kh) {
+                for (unsigned int kw = 0; kw < mat->getKernelWidth(); ++kh) {
+                    for (unsigned int h = 0; h < mat->getNOutChannelTiles(); ++h) {
+                        for (unsigned int w = 0; w < mat->getNInChannelTiles(); ++w) {
+                            cmatTiles_.push_back(mat->getTile(kh, kw, h, w));
+                        }
+                    }
+                }
+            }
+        }
+        vmvmuType_.resize(cmatTiles_.size() + 2);
+    } else if (model_->getModelType() == ModelImpl::TRAINING) {
+        for (auto m = model_->train_mat_begin(); m != model_->train_mat_end(); ++m) {
+            TrainingMatrixImpl* mat = *m;
+            for (unsigned int h = 0; h < mat->nHeightTiles(); ++h) {
+                for (unsigned int w = 0; w < mat->nWidthTiles(); ++w) {
+                    tmatTiles_.push_back(mat->getTile(h, w));
+                }
+            }
+        }
+        vmvmuType_.resize(tmatTiles_.size() + 2);
+    }
+    assignMatsToVMVMUs();
+}
+
+void Partitioner::assignVMVMUsInColMajor() {
+    // Extract all matrix tiles in column major order
+    if (model_->getModelType() == ModelImpl::INFERENCE) {
+        for (auto m = model_->const_mat_begin(); m != model_->const_mat_end(); ++m) {
+            ConstantMatrixImpl* mat = *m;
+            for (unsigned int w = 0; w < mat->nWidthTiles(); ++w) {
+                for (unsigned int h = 0; h < mat->nHeightTiles(); ++h) {
+                    cmatTiles_.push_back(mat->getTile(h, w));
+                }
+            }
+        }
+        for (auto m = model_->conv_mat_begin(); m != model_->conv_mat_end(); ++m) {
+            ConvolutionalConstantMatrixImpl* mat = *m;
+            for (unsigned int kh = 0; kh < mat->getKernelHeight(); ++kh) {
+                for (unsigned int kw = 0; kw < mat->getKernelWidth(); ++kw) {
+                    for (unsigned int w = 0; w < mat->getNInChannelTiles(); ++w) {
+                        for (unsigned int h = 0; h < mat->getNOutChannelTiles(); ++h) {
+                            cmatTiles_.push_back(mat->getTile(kh, kw, h, w));
+                        }
+                    }
+                }
+            }
+        }
+        vmvmuType_.resize(cmatTiles_.size() + 2);
+    } else if (model_->getModelType() == ModelImpl::TRAINING) {
+        for (auto m = model_->train_mat_begin(); m != model_->train_mat_end(); ++m) {
+            TrainingMatrixImpl* mat = *m;
+            for (unsigned int w = 0; w < mat->nWidthTiles(); ++w) {
+                for (unsigned int h = 0; h < mat->nHeightTiles(); ++h) {
+                    tmatTiles_.push_back(mat->getTile(h, w));
+                }
+            }
+        }
+        vmvmuType_.resize(tmatTiles_.size() + 2);
+    }
+    assignMatsToVMVMUs();
+}
+
+void Partitioner::assignVMVMUsRandomly() {
+    // Extract all matrix tiles in row major order
+    if (model_->getModelType() == ModelImpl::INFERENCE) {
+        for (auto m = model_->const_mat_begin(); m != model_->const_mat_end(); ++m) {
+            ConstantMatrixImpl* mat = *m;
+            for (unsigned int h = 0; h < mat->nHeightTiles(); ++h) {
+                for (unsigned int w = 0; w < mat->nWidthTiles(); ++w) {
+                    cmatTiles_.push_back(mat->getTile(h, w));
+                }
+            }
+        }
+        for (auto m = model_->conv_mat_begin(); m != model_->conv_mat_end(); ++m) {
+            ConvolutionalConstantMatrixImpl* mat = *m;
+            for (unsigned int kh = 0; kh < mat->getKernelHeight(); ++kh) {
+                for (unsigned int kw = 0; kw < mat->getKernelWidth(); ++kw) {
+                    for (unsigned int h = 0; h < mat->getNOutChannelTiles(); ++h) {
+                        for (unsigned int w = 0; w < mat->getNInChannelTiles(); ++w) {
+                            cmatTiles_.push_back(mat->getTile(kh, kw, h, w));
+                        }
+                    }
+                }
+            }
+        }
+    } else if (model_->getModelType() == ModelImpl::TRAINING) {
+        for (auto m = model_->train_mat_begin(); m != model_->train_mat_end(); ++m) {
+            TrainingMatrixImpl* mat = *m;
+            for (unsigned int h = 0; h < mat->nHeightTiles(); ++h) {
+                for (unsigned int w = 0; w < mat->nWidthTiles(); ++w) {
+                    tmatTiles_.push_back(mat->getTile(h, w));
+                }
+            }
+        }
+    }
+
+    // Shuffle them randomly
+    if (model_->getModelType() == ModelImpl::INFERENCE) {
+        std::random_shuffle(cmatTiles_.begin(), cmatTiles_.end());
+    } else if (model_->getModelType() == ModelImpl::TRAINING) {
+        std::random_shuffle(tmatTiles_.begin(), tmatTiles_.end());
+    }
+    assignMatsToVMVMUs();
+}
+
+void Partitioner::assignMatsToVMVMUs() {
+    // Assign constant matrix tiles to virtual MVMUs
+    nVMVMUs_ = 2;  // Reserve 0 and 1 for input and output
+    vmvmuType_.resize(nVMVMUs_ + 2); // +2 for input and output
+    vmvmuType_[0] = vmvmuType_[1] = 0;  // Input and output MVMUs are type 0
+    if (model_->getModelType() == ModelImpl::INFERENCE) {
+        cmat2vmvmu_.clear();
+        for (ConstantMatrixTile* tile : cmatTiles_) {
+            unsigned int vMVMU = nVMVMUs_++;
+            cmat2vmvmu_[tile] = vMVMU;
+            vmvmuType_[vMVMU] = tile->getStorageType();
+        }
+    } else if (model_->getModelType() == ModelImpl::TRAINING) {
+        tmat2vmvmu_.clear();
+        for (TrainingMatrixTile* tile : tmatTiles_) {
+            unsigned int vMVMU = nVMVMUs_++;
+            tmat2vmvmu_[tile] = vMVMU;
+        }
+    }
+}
+
+void Partitioner::assignVTilesWithKaHIP() {
+    // Implementation for KaHIP-based tile assignment
+    // ... (implementation details)
+}
+
+unsigned int Partitioner::getVMVMUType(unsigned int vMVMU) {
+    assert(vMVMU < vmvmuType_.size() && "Invalid virtual MVMU!");
+    return vmvmuType_[vMVMU];
+}
+
+unsigned int Partitioner::getVCoreType(unsigned int vCore) {
+    assert(vCore < vcoreType_.size() && "Invalid virtual core!");
+    return vcoreType_[vCore];
+}
+
+unsigned int Partitioner::getVTileType(unsigned int vTile) {
+    assert(vTile < vtileType_.size() && "Invalid virtual tile!");
+    return vtileType_[vTile];
+}

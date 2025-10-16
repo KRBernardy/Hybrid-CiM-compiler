@@ -195,6 +195,7 @@ class MVMOperation : public ProducerOperation, public ConsumerOperation, public 
 
         void setCoalescedSet(CoalescedMVMSet* coalescedSet);
         void resetCoalescedSet();
+        ConstantMatrixTile* getMatrix() { return mat_; }
         CoalescedMVMSet* getCoalescedSet() { return coalescedSet_; }
 
         std::string printNodeStyle();
@@ -248,6 +249,7 @@ class TrainingMatrixOperation : public ProducerOperation, public ConsumerOperati
 
         void setCoalescedSet(CoalescedTrainingOperationSet* coalescedSet);
         void resetCoalescedSet();
+        TrainingMatrixTile* getMatrix() { return mat_; }
         CoalescedTrainingOperationSet* getCoalescedSet() { return coalescedSet_; }
 
         std::string printNodeStyle();
