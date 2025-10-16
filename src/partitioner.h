@@ -70,12 +70,12 @@ class Partitioner {
         std::vector<std::set<unsigned int>> coreMVMUs_;  // Track MVMUs assigned to each core
 
         // Assignment functions
-        void assignVMVMUsInRowMajor();
-        void assignVMVMUsInColMajor();
-        void assignVMVMUsRandomly();
-        void assignMatsToVMVMUs();  // Assign constant matrix tiles to virtual MVMUs
-        void assignMVMUsToVCores();  // First assign MVMUs to cores
-        void assignOperationsToVCores();  // Then assign operations to cores
+        void CreateMatListInRowMajor();
+        void CreateMatListInColMajor();
+        void CreateMatListRandomly();
+        void assignMatsToVMVMUs();
+        void assignMVMUsToVCores();
+        void assignOperationsToVCores();
         void assignVTilesInVCoreOrder();
         void assignVTilesWithKaHIP();
         
@@ -84,14 +84,13 @@ class Partitioner {
         void assignVCore(Operation* op, unsigned int vCore);
         unsigned int calculateCommCost(Operation* op, unsigned int vCore);
         unsigned int findBestCoreForOperation(Operation* op);
-        
+        void unlink(Operation* op);
+
         // Data movement insertion
         void insertLoadsAndStores();
         void insertSendsAndRecives();
         void insertInputAndOutput();
         void insertCopies();
-        
-        void unlink(Operation* op);
 
         // Statistics
         unsigned int numLoads_ = 0;

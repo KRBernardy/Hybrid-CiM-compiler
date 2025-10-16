@@ -27,19 +27,20 @@
 Partitioner::Partitioner(ModelImpl *model, CompilerOptions::GraphPartitioningScheme gp)
     : model_(model), gp_(gp) {
     
-    // Step 1: Assign matrix tiles to virtual MVMUs
+    // Step 1: Create matrix tile list and assign to virtual MVMUs
     if(gp_ == CompilerOptions::GP_ROW_MAJOR) {
-        assignVMVMUsInRowMajor();
+        CreateMatListInRowMajor();
     } else if(gp_ == CompilerOptions::GP_COL_MAJOR) {
-        assignVMVMUsInColMajor();
+        CreateMatListInColMajor();
     } else if(gp_ == CompilerOptions::GP_RANDOM) {
-        assignVMVMUsRandomly();
+        CreateMatListRandomly();
     }
+    assignMatsToVMVMUs();
     
-    // Step 2: Assign MVMUs to cores (respecting type constraints)
+    // Step 2: Assign MVMUs to cores
     assignMVMUsToVCores();
     
-    // Step 3: Assign all operations directly to cores
+    // Step 3: Assign all operations to cores
     assignOperationsToVCores();
     
     // Step 4: Assign cores to tiles
@@ -48,7 +49,7 @@ Partitioner::Partitioner(ModelImpl *model, CompilerOptions::GraphPartitioningSch
        gp_ == CompilerOptions::GP_RANDOM) {
         assignVTilesInVCoreOrder();
     } else if(gp_ == CompilerOptions::GP_KAHIP) {
-        assignVTilesWithKaHIP();
+        assignVTilesWithKaHIP(); // Not implemented yet
     }
     
     // Step 5: Insert necessary data movement operations
@@ -589,7 +590,7 @@ void Partitioner::printReport(std::ofstream& report) {
 }
 
 // Implement the MVMU assignment functions
-void Partitioner::assignVMVMUsInRowMajor() {
+void Partitioner::CreateMatListInRowMajor() {
     // Extract all matrix tiles in row major order
     if (model_->getModelType() == ModelImpl::INFERENCE) {
         for (auto m = model_->const_mat_begin(); m != model_->const_mat_end(); ++m) {
@@ -624,10 +625,9 @@ void Partitioner::assignVMVMUsInRowMajor() {
         }
         vmvmuType_.resize(tmatTiles_.size() + 2);
     }
-    assignMatsToVMVMUs();
 }
 
-void Partitioner::assignVMVMUsInColMajor() {
+void Partitioner::CreateMatListInColMajor() {
     // Extract all matrix tiles in column major order
     if (model_->getModelType() == ModelImpl::INFERENCE) {
         for (auto m = model_->const_mat_begin(); m != model_->const_mat_end(); ++m) {
@@ -662,10 +662,9 @@ void Partitioner::assignVMVMUsInColMajor() {
         }
         vmvmuType_.resize(tmatTiles_.size() + 2);
     }
-    assignMatsToVMVMUs();
 }
 
-void Partitioner::assignVMVMUsRandomly() {
+void Partitioner::CreateMatListRandomly() {
     // Extract all matrix tiles in row major order
     if (model_->getModelType() == ModelImpl::INFERENCE) {
         for (auto m = model_->const_mat_begin(); m != model_->const_mat_end(); ++m) {
@@ -705,7 +704,6 @@ void Partitioner::assignVMVMUsRandomly() {
     } else if (model_->getModelType() == ModelImpl::TRAINING) {
         std::random_shuffle(tmatTiles_.begin(), tmatTiles_.end());
     }
-    assignMatsToVMVMUs();
 }
 
 void Partitioner::assignMatsToVMVMUs() {
