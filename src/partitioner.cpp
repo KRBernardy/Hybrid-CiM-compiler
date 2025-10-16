@@ -71,7 +71,7 @@ void Partitioner::assignVCore(Operation* op, unsigned int vCore) {
     if(vCore < coreWeights_.size()) {
         unsigned int weight = 0;
         if (dynamic_cast<MVMOperation*>(op)) {
-            weight = OP_WEIGHT_MVM[vcoreType_[vCore]];
+            weight = OP_WEIGHT_MVM[getVCoreType(vCore)];
         } else if (dynamic_cast<TrainingMatrixOperation*>(op)) {
             weight = OP_WEIGHT_TRAINING_MVM;
         } else if (dynamic_cast<ALUVectorOperation*>(op)) {
@@ -156,7 +156,7 @@ void Partitioner::assignMVMUsToVCores() {
     // Group MVMUs by type
     std::map<unsigned int, std::vector<unsigned int>> mvmusByType;
     for(unsigned int vMVMU = 2; vMVMU < nVMVMUs_; ++vMVMU) {
-        mvmusByType[vmvmuType_[vMVMU]].push_back(vMVMU);
+        mvmusByType[getVMVMUType(vMVMU)].push_back(vMVMU);
     }
     
     // Assign MVMUs to cores, ensuring one type per core
@@ -210,30 +210,32 @@ unsigned int Partitioner::findBestCoreForOperation(Operation* op) {
     unsigned int bestCore = 2;  // Start from first non-reserved core
     int bestScore = INT_MAX;
     
+    // This function should only be called for non-matrix operations,
+    // as matrix operations are assigned in the first pass.
+    assert(dynamic_cast<MVMOperation*>(op) == nullptr && "MVM ops should be pre-assigned!");
+    assert(dynamic_cast<TrainingMatrixOperation*>(op) == nullptr && "Training ops should be pre-assigned!");
+
+    unsigned int weight = 0;
+    if (dynamic_cast<ALUVectorOperation*>(op)) {
+        weight = OP_WEIGHT_ALU;
+    } else if (dynamic_cast<LoadOperation*>(op)) {
+        weight = OP_WEIGHT_LOAD;
+    } else if (dynamic_cast<StoreOperation*>(op)) {
+        weight = OP_WEIGHT_STORE;
+    } else if (dynamic_cast<SendOperation*>(op)) {
+        weight = OP_WEIGHT_SEND;
+    } else if (dynamic_cast<ReceiveOperation*>(op)) {
+        weight = OP_WEIGHT_RECV;
+    } else if (dynamic_cast<CopyOperation*>(op)) {
+        weight = OP_WEIGHT_COPY;
+    } else if (dynamic_cast<SetImmediateOperation*>(op)) {
+        weight = OP_WEIGHT_SETI;
+    } else {
+        weight = op->length(); // Fallback
+    }
+
     for(unsigned int vCore = 2; vCore < nVCores_; ++vCore) {
         // Calculate score: current load + operation weight
-        unsigned int weight = 0;
-        if (dynamic_cast<MVMOperation*>(op)) {
-            weight = OP_WEIGHT_MVM[vcoreType_[vCore]];
-        } else if (dynamic_cast<TrainingMatrixOperation*>(op)) {
-            weight = OP_WEIGHT_TRAINING_MVM;
-        } else if (dynamic_cast<ALUVectorOperation*>(op)) {
-            weight = OP_WEIGHT_ALU;
-        } else if (dynamic_cast<LoadOperation*>(op)) {
-            weight = OP_WEIGHT_LOAD;
-        } else if (dynamic_cast<StoreOperation*>(op)) {
-            weight = OP_WEIGHT_STORE;
-        } else if (dynamic_cast<SendOperation*>(op)) {
-            weight = OP_WEIGHT_SEND;
-        } else if (dynamic_cast<ReceiveOperation*>(op)) {
-            weight = OP_WEIGHT_RECV;
-        } else if (dynamic_cast<CopyOperation*>(op)) {
-            weight = OP_WEIGHT_COPY;
-        } else if (dynamic_cast<SetImmediateOperation*>(op)) {
-            weight = OP_WEIGHT_SETI;
-        } else {
-            weight = op->length(); // Fallback
-        }
         int score = coreWeights_[vCore] + weight;
         
         // Subtract communication benefit (operations on same core don't need communication)
@@ -604,7 +606,7 @@ void Partitioner::CreateMatListInRowMajor() {
         for (auto m = model_->conv_mat_begin(); m != model_->conv_mat_end(); ++m) {
             ConvolutionalConstantMatrixImpl* mat = *m;
             for (unsigned int kh = 0; kh < mat->getKernelHeight(); ++kh) {
-                for (unsigned int kw = 0; kw < mat->getKernelWidth(); ++kh) {
+                for (unsigned int kw = 0; kw < mat->getKernelWidth(); ++kw) {
                     for (unsigned int h = 0; h < mat->getNOutChannelTiles(); ++h) {
                         for (unsigned int w = 0; w < mat->getNInChannelTiles(); ++w) {
                             cmatTiles_.push_back(mat->getTile(kh, kw, h, w));
@@ -640,8 +642,8 @@ void Partitioner::CreateMatListInColMajor() {
         }
         for (auto m = model_->conv_mat_begin(); m != model_->conv_mat_end(); ++m) {
             ConvolutionalConstantMatrixImpl* mat = *m;
-            for (unsigned int kh = 0; kh < mat->getKernelHeight(); ++kh) {
-                for (unsigned int kw = 0; kw < mat->getKernelWidth(); ++kw) {
+            for (unsigned int kw = 0; kw < mat->getKernelHeight(); ++kw) {
+                for (unsigned int kh = 0; kh < mat->getKernelWidth(); ++kh) {
                     for (unsigned int w = 0; w < mat->getNInChannelTiles(); ++w) {
                         for (unsigned int h = 0; h < mat->getNOutChannelTiles(); ++h) {
                             cmatTiles_.push_back(mat->getTile(kh, kw, h, w));
