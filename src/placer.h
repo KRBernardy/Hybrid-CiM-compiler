@@ -44,7 +44,6 @@ class Placer {
         unsigned int getPMVMU(TrainingMatrixTile* tile);
         unsigned int getPTile(TrainingMatrixTile* tile);
         unsigned int getPCore(TrainingMatrixTile* tile);
-        unsigned int getPMVMU(ConstantVectorTile* tile);
         unsigned int getPTile(ConstantVectorTile* tile);
         unsigned int getPCore(ConstantVectorTile* tile);
         unsigned int getPMVMU(Operation* op);

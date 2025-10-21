@@ -6,6 +6,9 @@
  *
  */
 
+#ifndef MODEL_H
+#define MODEL_H
+
 #include <list>
 #include <map>
 #include <set>
@@ -95,3 +98,4 @@ class ModelImpl {
 
 };
 
+#endif // MODEL_H

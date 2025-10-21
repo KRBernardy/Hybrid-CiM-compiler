@@ -113,8 +113,8 @@ unsigned int Placer::getPCore(ConstantVectorTile* tile) {
     return vcore2pcore_[partitioner_->getVCore(tile->getOp())];
 }
 
-unsigned int Placer::getPMVMU(ConstantVectorTile* tile) {
-    return vmvmu2pmvmu_[partitioner_->getVMVMU(tile->getOp())];
+unsigned int Placer::getPMVMU(Operation* op) {
+    return vmvmu2pmvmu_[partitioner_->getVMVMU(op)];
 }
 
 unsigned int Placer::getPTile(Operation* op) {
@@ -123,10 +123,6 @@ unsigned int Placer::getPTile(Operation* op) {
 
 unsigned int Placer::getPCore(Operation* op) {
     return vcore2pcore_[partitioner_->getVCore(op)];
-}
-
-unsigned int Placer::getPMVMU(Operation* op) {
-    return vmvmu2pmvmu_[partitioner_->getVMVMU(op)];
 }
 
 unsigned int Placer::getType(unsigned int pTile, unsigned int pCore, unsigned int pMVMU) {
@@ -151,9 +147,6 @@ unsigned int Placer::getNMVMVUsOfCore(unsigned int pTile, unsigned int pCore) {
 
 std::string Placer::printAssignment(Operation* op) {
     std::stringstream ss;
-    if(vmvmu2pmvmu_.size() > 0) {
-        ss << "\npMVMU = " << getPMVMU(op);
-    }
     if(vcore2pcore_.size() > 0) {
         ss << ", pCore = " << getPCore(op);
     }

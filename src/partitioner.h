@@ -6,8 +6,8 @@
  *
  */
 
-#ifndef __PARTITIONER_H__
-#define __PARTITIONER_H__
+#ifndef PARTITIONER_H
+#define PARTITIONER_H
 
 #include "common.h"
 #include "model.h"
@@ -24,6 +24,7 @@ class Partitioner {
 
         Partitioner(ModelImpl* model, CompilerOptions::GraphPartitioningScheme gp);
 
+        unsigned int getVMVMU(Operation* op);
         unsigned int getVCore(Operation* op);
         unsigned int getVTile(Operation* op);
         unsigned int getVMVMU(ConstantMatrixTile* tile);
@@ -32,9 +33,14 @@ class Partitioner {
         unsigned int getVMVMU(TrainingMatrixTile* tile);
         unsigned int getVCore(TrainingMatrixTile* tile);
         unsigned int getVTile(TrainingMatrixTile* tile);
+        unsigned int getVCore(unsigned int vMVMU);
+        unsigned int getVTile(unsigned int vCore);
         unsigned int getVMVMUType(unsigned int vMVMU);
         unsigned int getVCoreType(unsigned int vCore);
         unsigned int getVTileType(unsigned int vTile);
+        unsigned int getNVMVMUs() { return nVMVMUs_; }
+        unsigned int getNVCores() { return nVCores_; }
+        unsigned int getNVTiles() { return nVTiles_; }
 
         void cloneAssignment(Operation* cloneFrom, Operation* cloneTo);
 

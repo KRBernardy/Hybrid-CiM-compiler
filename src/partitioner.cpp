@@ -99,6 +99,16 @@ void Partitioner::assignVCore(Operation* op, unsigned int vCore) {
     }
 }
 
+unsigned int Partitioner::getVMVMU(Operation* op) {
+    if (MVMOperation* mvmOp = dynamic_cast<MVMOperation*>(op)) {
+        return getVMVMU(mvmOp->getMatrix());
+    }
+    else if (TrainingMatrixOperation* tmatOp = dynamic_cast<TrainingMatrixOperation*>(op)) {
+        return getVMVMU(tmatOp->getMatrix());
+    }
+    assert(false && "Only MVMOperation and TrainingMatrixOperation have VMVMU assignments!");
+}
+
 unsigned int Partitioner::getVCore(Operation* op) {
     assert(isVCoreAssigned(op) && "Virtual core not assigned!");
     return op2vcore_[op];
@@ -132,6 +142,16 @@ unsigned int Partitioner::getVCore(TrainingMatrixTile* tile) {
 
 unsigned int Partitioner::getVTile(TrainingMatrixTile* tile) {
     return vcore2vtile_[getVCore(tile)];
+}
+
+unsigned int Partitioner::getVCore(unsigned int vMVMU) {
+    assert(vmvmu2vcore_.count(vMVMU) && "Virtual core not assigned!");
+    return vmvmu2vcore_[vMVMU];
+}
+
+unsigned int Partitioner::getVTile(unsigned int vCore) {
+    assert(vcore2vtile_.count(vCore) && "Virtual tile not assigned!");
+    return vcore2vtile_[vCore];
 }
 
 void Partitioner::assignMVMUsToVCores() {
@@ -294,9 +314,24 @@ void Partitioner::assignOperationsToVCores() {
     }
     
     // Second pass: Use a priority queue to assign remaining operations
-    using PQElement = std::pair<int, Operation*>;
-    std::priority_queue<PQElement> pq;
+    // Using indexed priority queue with decrease-key support
+    struct PQEntry {
+        int priority;
+        int counter;
+        Operation* op;
+        bool valid;
+        
+        bool operator<(const PQEntry& other) const {
+            if(priority != other.priority) return priority < other.priority;
+            return counter > other.counter;  // Tie-breaking by insertion order
+        }
+    };
+    
+    std::priority_queue<PQEntry> pq;
+    std::set<Operation*> in_queue;
+    std::map<Operation*, PQEntry*> entry_finder;
     std::map<Operation*, int> connectivity;
+    int counter = 0;
 
     // Initialize priority queue with all unassigned operations
     for(auto it = model_->op_begin(); it != model_->op_end(); ++it) {
@@ -314,68 +349,62 @@ void Partitioner::assignOperationsToVCores() {
                 }
             }
             connectivity[op] = conn;
-            pq.push({conn, op});
+            PQEntry entry = {conn, counter++, op, true};
+            pq.push(entry);
+            in_queue.insert(*it);
+            // Note: We can't store pointer to heap entry, so we track validity differently
         }
     }
 
     // Process operations from the priority queue
     while(!pq.empty()) {
-        Operation* op = pq.top().second;
+        PQEntry entry = pq.top();
         pq.pop();
+        
+        Operation* op = entry.op;
 
         // Skip if already assigned (stale entry in queue)
-        if(isVCoreAssigned(op)) {
+        if(isVCoreAssigned(op) || in_queue.find(op) == in_queue.end()) {
             continue;
         }
 
         // Assign the operation to the best core
         unsigned int bestCore = findBestCoreForOperation(op);
         assignVCore(op, bestCore);
+        in_queue.erase(op);
 
-        // Update connectivity of its neighbors
-        // Operands' users
+        // Update connectivity and re-insert neighbors with updated priorities
+        std::set<Operation*> to_update;
+        
+        // Collect neighbors to update
         if(ConsumerOperation* cons = dynamic_cast<ConsumerOperation*>(op)) {
             for(unsigned int o = 0; o < cons->numOperands(); ++o) {
                 ProducerOperation* operand = cons->getOperand(o);
-                if(ProducerOperation* prod = dynamic_cast<ProducerOperation*>(operand)) {
-                    for(auto u = prod->user_begin(); u != prod->user_end(); ++u) {
-                        if(!isVCoreAssigned(*u)) {
-                            connectivity[*u]++;
-                            pq.push({connectivity[*u], *u});
-                        }
+                if(ProducerOperation* producer = dynamic_cast<ProducerOperation*>(operand)) {
+                    if(!isVCoreAssigned(producer) && in_queue.find(producer) != in_queue.end()) {
+                        to_update.insert(producer);
                     }
                 }
             }
         }
-        // Users' operands
         if(ProducerOperation* prod = dynamic_cast<ProducerOperation*>(op)) {
             for(auto u = prod->user_begin(); u != prod->user_end(); ++u) {
                 if(ConsumerOperation* consumer = dynamic_cast<ConsumerOperation*>(*u)) {
-                     if(!isVCoreAssigned(consumer)) {
-                        connectivity[consumer]++;
-                        pq.push({connectivity[consumer], consumer});
+                     if(!isVCoreAssigned(consumer) && in_queue.find(consumer) != in_queue.end()) {
+                        to_update.insert(consumer);
                     }
                 }
             }
         }
-    }
-    
-    // Third pass: Handle any remaining unassigned operations (shouldn't happen, but safety check)
-    for(auto it = model_->op_begin(); it != model_->op_end(); ++it) {
-        Operation* op = *it;
-        if(!isVCoreAssigned(op)) {
-            // Find core with minimum weight
-            unsigned int minCore = 2;
-            unsigned int minWeight = coreWeights_[2];
-            for(unsigned int vCore = 3; vCore < nVCores_; ++vCore) {
-                if(coreWeights_[vCore] < minWeight) {
-                    minWeight = coreWeights_[vCore];
-                    minCore = vCore;
-                }
-            }
-            assignVCore(op, minCore);
+        
+        // Update priorities (decrease-key by invalidating old and inserting new)
+        for(Operation* neighbor : to_update) {
+            connectivity[neighbor]++;
+            PQEntry new_entry = {connectivity[neighbor], counter++, neighbor, true};
+            pq.push(new_entry);
         }
     }
+    
 }
 
 void Partitioner::assignVTilesInVCoreOrder() {

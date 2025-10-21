@@ -165,12 +165,10 @@ void ModelInstanceImpl::generateData() {
             ConstantVectorTile* tile = vec->getTile(t);
             unsigned int pTile = placer_->getPTile(tile);
             unsigned int pCore = placer_->getPCore(tile);
-            unsigned int pMVMU = placer_->getPMVMU(tile);
             unsigned int startAddr = registerAllocator_->getRegister(tile);
             json temp;
             temp["tile"] = pTile;
             temp["core"] = pCore;
-            temp["mvmu"] = pMVMU;
             temp["reg"] = startAddr;
             temp["value"] = json::array();
             for (unsigned int i = 0; i < tile->length(); ++i) {
