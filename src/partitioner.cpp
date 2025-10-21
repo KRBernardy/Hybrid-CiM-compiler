@@ -739,21 +739,23 @@ void Partitioner::CreateMatListRandomly() {
 
 void Partitioner::assignMatsToVMVMUs() {
     // Assign constant matrix tiles to virtual MVMUs
-    nVMVMUs_ = 2;  // Reserve 0 and 1 for input and output
-    vmvmuType_.resize(nVMVMUs_ + 2); // +2 for input and output
-    vmvmuType_[0] = vmvmuType_[1] = 0;  // Input and output MVMUs are type 0
+    vmvmuType_.clear();
+    vmvmuType_.push_back(0); // Input MVMU type
+    vmvmuType_.push_back(0); // Output MVMU type
+    nVMVMUs_ = 2;
     if (model_->getModelType() == ModelImpl::INFERENCE) {
         cmat2vmvmu_.clear();
         for (ConstantMatrixTile* tile : cmatTiles_) {
             unsigned int vMVMU = nVMVMUs_++;
             cmat2vmvmu_[tile] = vMVMU;
-            vmvmuType_[vMVMU] = tile->getStorageType();
+            vmvmuType_.push_back(tile->getStorageType());
         }
     } else if (model_->getModelType() == ModelImpl::TRAINING) {
         tmat2vmvmu_.clear();
         for (TrainingMatrixTile* tile : tmatTiles_) {
             unsigned int vMVMU = nVMVMUs_++;
             tmat2vmvmu_[tile] = vMVMU;
+            vmvmuType_.push_back(0); // Or another type if needed
         }
     }
 }
