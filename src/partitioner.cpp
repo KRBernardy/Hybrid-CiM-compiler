@@ -408,11 +408,137 @@ void Partitioner::assignOperationsToVCores() {
 }
 
 void Partitioner::assignVTilesInVCoreOrder() {
-    for(unsigned int vCore = 0; vCore < nVCores_; ++vCore) {
-        vcore2vtile_[vCore] = vCore;
+    // Build a symmetric communication matrix that counts bytes exchanged between cores
+    std::vector<std::vector<unsigned int>> commMatrix(nVCores_, std::vector<unsigned int>(nVCores_, 0));
+    for (auto it = model_->op_begin(); it != model_->op_end(); ++it) {
+        if (ProducerOperation* producer = dynamic_cast<ProducerOperation*>(*it)) {
+            if (!isVCoreAssigned(producer)) {
+                continue;
+            }
+            unsigned int producerCore = getVCore(producer);
+            for (auto userIt = producer->user_begin(); userIt != producer->user_end(); ++userIt) {
+                ConsumerOperation* consumer = *userIt;
+                if (!isVCoreAssigned(consumer)) {
+                    continue;
+                }
+                unsigned int consumerCore = getVCore(consumer);
+                if (producerCore == consumerCore) {
+                    continue;
+                }
+                unsigned int weight = producer->length();
+                commMatrix[producerCore][consumerCore] += weight;
+                commMatrix[consumerCore][producerCore] += weight;
+            }
+        }
     }
-    nVTiles_ = nVCores_;
-    
+
+    std::vector<unsigned int> totalComm(nVCores_, 0);
+    for (unsigned int i = 0; i < nVCores_; ++i) {
+        unsigned int sum = 0;
+        for (unsigned int j = 0; j < nVCores_; ++j) {
+            sum += commMatrix[i][j];
+        }
+        totalComm[i] = sum;
+    }
+
+    vcore2vtile_.clear();
+    vtileType_.clear();
+
+    std::vector<bool> assigned(nVCores_, false);
+    unsigned int tileId = 0;
+
+    if (nVCores_ > 0) {
+        vcore2vtile_[0] = tileId;
+        unsigned int tileType = vcoreType_.empty() ? 0 : vcoreType_[0];
+        vtileType_.push_back(tileType);
+        assigned[0] = true;
+        ++tileId;
+    }
+    if (nVCores_ > 1) {
+        vcore2vtile_[1] = tileId;
+        unsigned int tileType = vcoreType_.size() > 1 ? vcoreType_[1] : 0;
+        vtileType_.push_back(tileType);
+        assigned[1] = true;
+        ++tileId;
+    }
+
+    while (true) {
+        unsigned int startCore = nVCores_;
+        unsigned int bestTotalComm = 0;
+        for (unsigned int vCore = 0; vCore < nVCores_; ++vCore) {
+            if (assigned[vCore]) {
+                continue;
+            }
+            if (startCore == nVCores_ || totalComm[vCore] > bestTotalComm ||
+                (totalComm[vCore] == bestTotalComm && vCore < startCore)) {
+                startCore = vCore;
+                bestTotalComm = totalComm[vCore];
+            }
+        }
+        if (startCore == nVCores_) {
+            break; // All cores are assigned
+        }
+
+        std::vector<unsigned int> tileMembers;
+        tileMembers.reserve(N_CORES_PER_TILE);
+        tileMembers.push_back(startCore);
+        assigned[startCore] = true;
+        vcore2vtile_[startCore] = tileId;
+
+        while (tileMembers.size() < N_CORES_PER_TILE) {
+            unsigned int bestCore = nVCores_;
+            unsigned int bestComm = 0;
+            unsigned int bestTotal = 0;
+            for (unsigned int candidate = 0; candidate < nVCores_; ++candidate) {
+                if (assigned[candidate]) {
+                    continue;
+                }
+                unsigned int commToTile = 0;
+                for (unsigned int member : tileMembers) {
+                    commToTile += commMatrix[candidate][member];
+                }
+                if (commToTile > bestComm ||
+                    (commToTile == bestComm && totalComm[candidate] > bestTotal) ||
+                    (commToTile == bestComm && totalComm[candidate] == bestTotal && candidate < bestCore)) {
+                    bestCore = candidate;
+                    bestComm = commToTile;
+                    bestTotal = totalComm[candidate];
+                }
+            }
+            if (bestCore == nVCores_) {
+                break;
+            }
+            tileMembers.push_back(bestCore);
+            assigned[bestCore] = true;
+            vcore2vtile_[bestCore] = tileId;
+        }
+
+        unsigned int representativeType = vcoreType_.empty() ? 0 : vcoreType_[tileMembers.front()];
+        // Guard against tile indexes that belong to the reserved tiles
+        if (tileId >= vtileType_.size()) {
+            vtileType_.push_back(representativeType);
+        } else {
+            vtileType_[tileId] = representativeType;
+        }
+        ++tileId;
+    }
+
+    // Assign any ungrouped cores (should not happen, but keep mapping total)
+    for (unsigned int vCore = 0; vCore < nVCores_; ++vCore) {
+        if (!assigned[vCore]) {
+            vcore2vtile_[vCore] = tileId;
+            unsigned int representativeType = vcoreType_.empty() ? 0 : vcoreType_[vCore];
+            if (tileId >= vtileType_.size()) {
+                vtileType_.push_back(representativeType);
+            } else {
+                vtileType_[tileId] = representativeType;
+            }
+            assigned[vCore] = true;
+            ++tileId;
+        }
+    }
+
+    nVTiles_ = tileId;
 }
 
 void Partitioner::insertLoadsAndStores() {
