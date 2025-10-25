@@ -412,7 +412,8 @@ ImagePixelStream dequant(ImagePixelStream xsparam, float scale, int zero_point =
 Vector operator*(ConstantMatrix Mparam, Vector xparam) {
     ConstantMatrixImpl* M = Mparam.unwrap();
     ModelImpl* model = M->getModel();
-    VectorImpl* x = xparam.unwrap();
+    Vector quanted_x = quant(xparam, M->getInputScale(), M->getInputZeroPoint());
+    VectorImpl* x = quanted_x.unwrap();
     VectorImpl* y = new VectorImpl(model, M->height());
     M->checkCompatibilityForMVM(x);
     std::set<MVMOperation*>* coalesceableMVMSet = new std::set<MVMOperation*>();
@@ -430,7 +431,7 @@ Vector operator*(ConstantMatrix Mparam, Vector xparam) {
         y->setTile(h, accum[x->nTiles() - 1]);
     }
     model->addCoalesceableMVMSet(coalesceableMVMSet);
-    return Vector(y);
+    return dequant(Vector(y), M->getOutputScale(), M->getOutputZeroPoint());
 }
 
 ImagePixelStream operator*(ConvolutionalConstantMatrix Mparam, ImagePixelStream xsparam) {
@@ -464,7 +465,8 @@ ImagePixelStream operator+(ImagePixelStream x1param, ImagePixelStream x2param) {
 
 ImagePixelStream conv2d_forward(ConvolutionalConstantMatrix Mparam, ImagePixelStream xsparam, unsigned int stride_x, unsigned int stride_y, unsigned int padding_x, unsigned int padding_y) {
     ConvolutionalConstantMatrixImpl* M = Mparam.unwrap();
-    ImagePixelStreamImpl* xs = xsparam.unwrap();
+    ImagePixelStream quanted_xs = quant(xsparam, M->getInputScale(), M->getInputZeroPoint());
+    ImagePixelStreamImpl* xs = quanted_xs.unwrap();
     M->checkCompatibility(xs);
     ModelImpl* model = M->getModel();
     int kernelWidth = M->getKernelWidth();
@@ -517,7 +519,7 @@ ImagePixelStream conv2d_forward(ConvolutionalConstantMatrix Mparam, ImagePixelSt
             }
         }
     }
-    return ImagePixelStream(ys[kernelHeight * kernelWidth * nInChannelTiles - 1]);
+    return dequant((ys[kernelHeight * kernelWidth * nInChannelTiles - 1]), M->getOutputScale(), M->getOutputZeroPoint());
 }
 
 ImagePixelStream batchnorm(ImagePixelStream xsparam, BatchNormParam bnparam) {

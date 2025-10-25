@@ -160,7 +160,7 @@ class ConstantMatrix {
         ConstantMatrixImpl* impl_;
 
     public:
-        static ConstantMatrix create(Model model, std::string name, unsigned int width, unsigned int height, unsigned int storageType);
+        static ConstantMatrix create(Model model, std::string name, unsigned int width, unsigned int height, unsigned int storageType, float activation_scale=1.0f, float weights_scale=1.0f, int activation_zero_point=0, int weights_zero_point=0);
 
         ConstantMatrixImpl* unwrap();
 
@@ -175,7 +175,7 @@ class ConvolutionalConstantMatrix {
 
     public:
 
-        static ConvolutionalConstantMatrix create(Model model, std::string name, unsigned int kernelWidth, unsigned kernelHeight, unsigned int nInChannels, unsigned int nOutChannels, unsigned int storageType);
+        static ConvolutionalConstantMatrix create(Model model, std::string name, unsigned int kernelWidth, unsigned kernelHeight, unsigned int nInChannels, unsigned int nOutChannels, unsigned int storageType, float activation_scale=1.0f, float weights_scale=1.0f, int activation_zero_point=0, int weights_zero_point=0);
 
         ConvolutionalConstantMatrixImpl* unwrap();
 

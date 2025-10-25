@@ -339,15 +339,23 @@ class ConstantMatrixImpl : public AbstractMatrix {
 
         std::vector< std::vector<ConstantMatrixTile*> > tiles_;
         unsigned int storage_type_; // using this to differentiate between different storage types
+        float input_scale_;
+        float output_scale_;
+        int input_zero_point_;
+        int output_zero_point_;
 
-    public:
-        ConstantMatrixImpl(ModelImpl *model, std::string name, unsigned int width, unsigned int height, unsigned int storageType);
+       public:
+        ConstantMatrixImpl(ModelImpl *model, std::string name, unsigned int width, unsigned int height, unsigned int storageType, float activation_scale=1.0f, float weights_scale=1.0f, int activation_zero_point=0, int weights_zero_point=0);
         ~ConstantMatrixImpl();
 
         unsigned int nHeightTiles() { return (height_ - 1)/MVMU_DIM + 1; }
         unsigned int nWidthTiles() { return (width_ - 1)/MVMU_DIM + 1; }
         ConstantMatrixTile* getTile(unsigned int h, unsigned int w);
         unsigned int getStorageType() { return storage_type_; }
+        float getInputScale() { return input_scale_; }
+        float getOutputScale() { return output_scale_; }
+        int getInputZeroPoint() { return input_zero_point_; }
+        int getOutputZeroPoint() { return output_zero_point_; }
 
         std::string printTensorType();
 
@@ -365,9 +373,18 @@ class ConvolutionalConstantMatrixImpl : public AbstractTensor {
         unsigned int nOutChannels_;
         unsigned int storage_type_; // using this to differentiate between different storage types
         std::vector< std::vector< std::vector< std::vector<ConstantMatrixTile*> > > > tiles_;
+        float input_scale_;
+        float output_scale_;
+        int input_zero_point_;
+        int output_zero_point_;
 
-    public:
-        ConvolutionalConstantMatrixImpl(ModelImpl *model, std::string name, unsigned int kernelWidth, unsigned int kernelHeight, unsigned int nInChannels, unsigned int nOutChannels, unsigned int storageType);
+       public:
+        ConvolutionalConstantMatrixImpl(ModelImpl* model, std::string name,
+                                        unsigned int kernelWidth, unsigned int kernelHeight,
+                                        unsigned int nInChannels, unsigned int nOutChannels,
+                                        unsigned int storageType, float activation_scale=1.0f,
+                                        float weights_scale=1.0f, int activation_zero_point=0,
+                                        int weights_zero_point=0);
         ~ConvolutionalConstantMatrixImpl();
 
         unsigned int getKernelWidth() { return kernelWidth_; }
@@ -379,6 +396,10 @@ class ConvolutionalConstantMatrixImpl : public AbstractTensor {
         ConstantMatrixTile* getTile(unsigned int kh, unsigned int kw, unsigned int h, unsigned int w);
         void checkCompatibility(AbstractImagePixelStream* vs);
         unsigned int getStorageType() { return storage_type_; }
+        float getInputScale() { return input_scale_; }
+        float getOutputScale() { return output_scale_; }
+        int getInputZeroPoint() { return input_zero_point_; }
+        int getOutputZeroPoint() { return output_zero_point_; }
 
         std::string printTensorType();
 

@@ -43,16 +43,16 @@ ConstantVector ConstantVector::create(Model model, std::string name, unsigned in
     return vec;
 }
 
-ConstantMatrix ConstantMatrix::create(Model model, std::string name, unsigned int width, unsigned int height, unsigned int storageType) {
+ConstantMatrix ConstantMatrix::create(Model model, std::string name, unsigned int width, unsigned int height, unsigned int storageType, float activation_scale, float weights_scale, int activation_zero_point, int weights_zero_point) {
     ConstantMatrix m;
-    m.impl_ = new ConstantMatrixImpl(model.unwrap(), name, width, height, storageType);
+    m.impl_ = new ConstantMatrixImpl(model.unwrap(), name, width, height, storageType, activation_scale, weights_scale, activation_zero_point, weights_zero_point);
     return m;
 }
 
-ConvolutionalConstantMatrix ConvolutionalConstantMatrix::create(Model model, std::string name, unsigned int kernelWidth, unsigned int kernelHeight, unsigned int nInChannels, unsigned int nOutChannels, unsigned int storageType)
+ConvolutionalConstantMatrix ConvolutionalConstantMatrix::create(Model model, std::string name, unsigned int kernelWidth, unsigned int kernelHeight, unsigned int nInChannels, unsigned int nOutChannels, unsigned int storageType, float activation_scale, float weights_scale, int activation_zero_point, int weights_zero_point)
 {
     ConvolutionalConstantMatrix m;
-    m.impl_ = new ConvolutionalConstantMatrixImpl(model.unwrap(), name, kernelWidth, kernelHeight, nInChannels, nOutChannels, storageType);
+    m.impl_ = new ConvolutionalConstantMatrixImpl(model.unwrap(), name, kernelWidth, kernelHeight, nInChannels, nOutChannels, storageType, activation_scale, weights_scale, activation_zero_point, weights_zero_point);
     return m;
 }
 
@@ -220,9 +220,16 @@ OutputImagePixelStreamImpl::OutputImagePixelStreamImpl(ModelImpl* model, std::st
     model->addOutputImagePixelStreamImpl(this);
 }
 
-ConstantMatrixImpl::ConstantMatrixImpl(ModelImpl *model, std::string name, unsigned int width, unsigned int height, unsigned int storageType)
-    : AbstractMatrix(model, name, width, height), storage_type_(storageType)
-{
+ConstantMatrixImpl::ConstantMatrixImpl(ModelImpl* model, std::string name, unsigned int width,
+                                       unsigned int height, unsigned int storageType,
+                                       float activation_scale, float weights_scale,
+                                       int activation_zero_point, int weights_zero_point)
+    : AbstractMatrix(model, name, width, height),
+      storage_type_(storageType),
+      input_scale_(activation_scale),
+      output_scale_(activation_scale * weights_scale),
+      input_zero_point_(activation_zero_point),
+      output_zero_point_(weights_zero_point) {
     tiles_.resize(nHeightTiles());
     for(unsigned int h = 0; h < nHeightTiles(); ++h) {
         unsigned int tileHeight = MVMU_DIM;
@@ -241,8 +248,8 @@ ConstantMatrixImpl::ConstantMatrixImpl(ModelImpl *model, std::string name, unsig
     model->addConstantMatrixImpl(this);
 }
 
-ConvolutionalConstantMatrixImpl::ConvolutionalConstantMatrixImpl(ModelImpl *model, std::string name, unsigned int kernelWidth, unsigned int kernelHeight, unsigned int nInChannels, unsigned int nOutChannels, unsigned int storageType)
-    : AbstractTensor(model, name), kernelWidth_(kernelWidth), kernelHeight_(kernelHeight), nInChannels_(nInChannels), nOutChannels_(nOutChannels), storage_type_(storageType)
+ConvolutionalConstantMatrixImpl::ConvolutionalConstantMatrixImpl(ModelImpl *model, std::string name, unsigned int kernelWidth, unsigned int kernelHeight, unsigned int nInChannels, unsigned int nOutChannels, unsigned int storageType, float activation_scale, float weights_scale, int activation_zero_point, int weights_zero_point)
+    : AbstractTensor(model, name), kernelWidth_(kernelWidth), kernelHeight_(kernelHeight), nInChannels_(nInChannels), nOutChannels_(nOutChannels), storage_type_(storageType), input_scale_(activation_scale), output_scale_(activation_scale * weights_scale), input_zero_point_(activation_zero_point), output_zero_point_(weights_zero_point)
 {
     tiles_.resize(kernelHeight);
     for(unsigned int kh = 0; kh < kernelHeight; ++kh) {
