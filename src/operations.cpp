@@ -148,19 +148,19 @@ Vector binaryOp(Vector x1param, Vector x2param, ALUVectorOperation::OpCode op) {
 }
 
 Vector operator+(Vector x1, Vector x2) {
-    return binaryOp(x1, x2, ALUVectorOperation::ADD);
+    return binaryOp(x1, x2, ALUVectorOperation::FADD);
 }
 
 Vector operator-(Vector x1, Vector x2) {
-    return binaryOp(x1, x2, ALUVectorOperation::SUB);
+    return binaryOp(x1, x2, ALUVectorOperation::FSUB);
 }
 
 Vector operator*(Vector x1, Vector x2) {
-    return binaryOp(x1, x2, ALUVectorOperation::MUL);
+    return binaryOp(x1, x2, ALUVectorOperation::FMUL);
 }
 
 Vector operator/(Vector x1, Vector x2) {
-    return binaryOp(x1, x2, ALUVectorOperation::DIV);
+    return binaryOp(x1, x2, ALUVectorOperation::FDIV);
 }
 
 Vector operator&(Vector x1, Vector x2) {
@@ -196,15 +196,11 @@ Vector operator>=(Vector x1, Vector x2) {
 }
 
 Vector min(Vector x1, Vector x2) {
-    return binaryOp(x1, x2, ALUVectorOperation::MIN);
+    return binaryOp(x1, x2, ALUVectorOperation::FMIN);
 }
 
 Vector max(Vector x1, Vector x2) {
-    return binaryOp(x1, x2, ALUVectorOperation::MAX);
-}
-
-Vector mse(Vector x1, Vector x2) {
-    return binaryOp(x1, x2, ALUVectorOperation::MSE);
+    return binaryOp(x1, x2, ALUVectorOperation::FMAX);
 }
 
 Vector immediateOp(Vector xparam, float imm, ALUVectorOperation::OpCode op) {
@@ -281,7 +277,7 @@ ImagePixelStream maxpool(ImagePixelStream xsparam, unsigned int hspan, unsigned 
                 if(accumIdx == 0) {
                     accum[ho][wo][accumIdx] = xTile;
                 } else {
-                    accum[ho][wo][accumIdx] = new ALUVectorOperation(accum[ho][wo][accumIdx - 1]->getModel(), ALUVectorOperation::MAX, accum[ho][wo][accumIdx - 1], xTile);
+                    accum[ho][wo][accumIdx] = new ALUVectorOperation(accum[ho][wo][accumIdx - 1]->getModel(), ALUVectorOperation::FMAX, accum[ho][wo][accumIdx - 1], xTile);
                 }
                 if((hh == hspan - 1 || hi == xs->imageHeight() - 1) && (ww == wspan - 1 || wi == xs->imageWidth() - 1)) {
                     ysTile->add(ho, wo, accum[ho][wo][accumIdx]);
@@ -313,7 +309,7 @@ ImagePixelStream avgpool(ImagePixelStream xsparam, unsigned int hspan, unsigned 
                 if(accumIdx == 0) {
                     accum[ho][wo][accumIdx] = xTile;
                 } else {
-                    accum[ho][wo][accumIdx] = new ALUVectorOperation(accum[ho][wo][accumIdx - 1]->getModel(), ALUVectorOperation::ADD, accum[ho][wo][accumIdx - 1], xTile);
+                    accum[ho][wo][accumIdx] = new ALUVectorOperation(accum[ho][wo][accumIdx - 1]->getModel(), ALUVectorOperation::FADD, accum[ho][wo][accumIdx - 1], xTile);
                 }
                 if((hh == hspan - 1 || hi == xs->imageHeight() - 1) && (ww == wspan - 1 || wi == xs->imageWidth() - 1)) {
                     ysTile->add(ho, wo, new ALUVectorOperation(accum[ho][wo][accumIdx]->getModel(), ALUVectorOperation::MULI, accum[ho][wo][accumIdx], 1.0 / ((hh + 1) * (ww + 1))));
@@ -339,7 +335,7 @@ Vector operator*(ConstantMatrix Mparam, Vector xparam) {
             if(w == 0) {
                 accum[w] = mvm;
             } else {
-                accum[w] = new ALUVectorOperation(model, ALUVectorOperation::ADD, mvm, accum[w - 1]);
+                accum[w] = new ALUVectorOperation(model, ALUVectorOperation::IADD, mvm, accum[w - 1]);
             }
         }
         y->setTile(h, accum[x->nTiles() - 1]);
@@ -349,64 +345,7 @@ Vector operator*(ConstantMatrix Mparam, Vector xparam) {
 }
 
 ImagePixelStream operator*(ConvolutionalConstantMatrix Mparam, ImagePixelStream xsparam) {
-    ConvolutionalConstantMatrixImpl* M = Mparam.unwrap();
-    ImagePixelStreamImpl* xs = xsparam.unwrap();
-    M->checkCompatibility(xs);
-    ModelImpl* model = M->getModel();
-    int kernelWidth = M->getKernelWidth();
-    int kernelHeight = M->getKernelHeight();
-    int nInChannelTiles = M->getNInChannelTiles();
-    int imageWidth = xs->imageWidth();
-    int imageHeight = xs->imageHeight();
-    ImagePixelStreamImpl* ys[kernelHeight*kernelWidth*nInChannelTiles];
-    for(int kh = 0; kh < kernelHeight; ++kh) { // Instantiates tiles within the same accumulation
-        for(int kw = 0; kw < kernelWidth; ++kw) { // Instantiates tiles within the same accumulation
-            for(int w = 0; w < nInChannelTiles; ++w) { // Instantiates tiles within the same accumulation
-                int accumIdx = (kh*kernelWidth + kw)*nInChannelTiles + w;
-                ys[accumIdx] = new ImagePixelStreamImpl(model, imageWidth, imageHeight, M->getNOutChannels());
-                for(int h = 0; h < M->getNOutChannelTiles(); ++h) { // Instantiates independent tiles
-                    ConstantMatrixTile* mat = M->getTile(kh, kw, h, w);
-                    ImagePixelStreamTile* imageStream = xs->getTile(w);
-                    ImagePixelStreamTile* accumStreamIn = (accumIdx == 0)?NULL:ys[accumIdx - 1]->getTile(h); // Partial sum feeding in from previous tile in the same accumulation
-                    ImagePixelStreamTile* accumStreamOut = ys[accumIdx]->getTile(h); // Partial sum feeding out to the next tile in the same accumulation
-                    // TODO: Convert the following into a single operation with codegened loops
-                    for(int hi = -kernelHeight/2; hi < imageHeight + kernelHeight/2; ++hi) { // Loops over padded pixels of streamed input image
-                        for(int wi = -kernelHeight/2; wi < imageWidth + kernelHeight/2; ++wi) { // Loops over padded pixels of streamed input image
-                            int ho = hi + kernelHeight/2 - kh;
-                            int wo = wi + kernelWidth/2 - kw;
-                            bool inputInBounds = hi >= 0
-                                                && hi < imageHeight
-                                                && wi >= 0
-                                                && wi < imageWidth;
-                            bool outputInBounds = ho >= 0
-                                                && ho < imageHeight
-                                                && wo >= 0
-                                                && wo < imageWidth;
-                            ProducerOperation* pixel = NULL;
-                            if(inputInBounds) {
-                                pixel = imageStream->get(hi, wi);
-                            }
-                            if(outputInBounds) {
-                                ProducerOperation* producer;
-                                if(inputInBounds) {
-                                    producer = new MVMOperation(model, mat, pixel);
-                                } else {
-                                    producer = new SetImmediateOperation(model, 0, mat->height()); // Use 0 for input padding
-                                }
-                                // TODO: The following implements a sequential reduction; it would be more efficient to implement a tree reduction
-                                if(accumIdx == 0) {
-                                    accumStreamOut->add(ho, wo, producer);
-                                } else {
-                                    accumStreamOut->add(ho, wo, new ALUVectorOperation(model, ALUVectorOperation::ADD, producer, accumStreamIn->get(ho, wo)));
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    return ImagePixelStream(ys[kernelHeight*kernelWidth*nInChannelTiles - 1]);
+    return conv2d_forward(Mparam, xsparam, 1, 1, 0, 0);
 }
 
 ImagePixelStream operator+(ImagePixelStream x1param, ImagePixelStream x2param) {
@@ -426,7 +365,7 @@ ImagePixelStream operator+(ImagePixelStream x1param, ImagePixelStream x2param) {
             for(unsigned int w = 0; w < x1->imageWidth(); ++w) {
                 ProducerOperation* x1Pixel = x1Tile->get(h, w);
                 ProducerOperation* x2Pixel = x2Tile->get(h, w);
-                ProducerOperation* yPixel = new ALUVectorOperation(model, ALUVectorOperation::ADD, x1Pixel, x2Pixel);
+                ProducerOperation* yPixel = new ALUVectorOperation(model, ALUVectorOperation::FADD, x1Pixel, x2Pixel);
                 yTile->add(h, w, yPixel);
             }
         }
@@ -473,7 +412,7 @@ ImagePixelStream conv2d_forward(ConvolutionalConstantMatrix Mparam, ImagePixelSt
                                 if (accumIdx == 0) {
                                     accumStreamOut->add(ho, wo, producer);
                                 } else {
-                                    accumStreamOut->add(ho, wo, new ALUVectorOperation(model, ALUVectorOperation::ADD, producer, accumStreamIn->get(ho, wo)));
+                                    accumStreamOut->add(ho, wo, new ALUVectorOperation(model, ALUVectorOperation::IADD, producer, accumStreamIn->get(ho, wo)));
                                 }
                             } else {
                                 // Use 0 for input padding
@@ -512,10 +451,10 @@ ImagePixelStream batchnorm(ImagePixelStream xsparam, BatchNormParam bnparam) {
         for (unsigned int h = 0; h < xs->imageHeight(); ++h) {
             for (unsigned int w = 0; w < xs->imageWidth(); ++w) {
                 ProducerOperation* x = xsTile->get(h, w);
-                ProducerOperation* out_1 = new ALUVectorOperation(model, ALUVectorOperation::SUB, x, mean_tile);
-                ProducerOperation* out_2 = new ALUVectorOperation(model, ALUVectorOperation::DIV, out_1, variance_tile);
-                ProducerOperation* out_3 = new ALUVectorOperation(model, ALUVectorOperation::MUL, out_2, weight_tile);
-                ProducerOperation* out_4 = new ALUVectorOperation(model, ALUVectorOperation::ADD, out_3, bias_tile);
+                ProducerOperation* out_1 = new ALUVectorOperation(model, ALUVectorOperation::FSUB, x, mean_tile);
+                ProducerOperation* out_2 = new ALUVectorOperation(model, ALUVectorOperation::FDIV, out_1, variance_tile);
+                ProducerOperation* out_3 = new ALUVectorOperation(model, ALUVectorOperation::FMUL, out_2, weight_tile);
+                ProducerOperation* out_4 = new ALUVectorOperation(model, ALUVectorOperation::FADD, out_3, bias_tile);
                 ysTile->add(h, w, out_4);
             }
         }
@@ -608,7 +547,7 @@ Vector operator*(TrainingMatrix Mparam, Vector xparam) {
             if(w == 0) {
                 accum[w] = trainingOp;
             } else {
-                accum[w] = new ALUVectorOperation(model, ALUVectorOperation::ADD, trainingOp, accum[w - 1]);
+                accum[w] = new ALUVectorOperation(model, ALUVectorOperation::FADD, trainingOp, accum[w - 1]);
             }
         }
         y->setTile(h, accum[x->nTiles() - 1]);
@@ -630,7 +569,7 @@ Vector operator*(Transpose Mparam, Vector xparam) {
             if(w == 0) {
                 accum[w] = trainingOp;
             } else {
-                accum[w] = new ALUVectorOperation(model, ALUVectorOperation::ADD, trainingOp, accum[w - 1]);
+                accum[w] = new ALUVectorOperation(model, ALUVectorOperation::FADD, trainingOp, accum[w - 1]);
             }
         }
         y->setTile(h, accum[x->nTiles() - 1]);
@@ -708,33 +647,39 @@ TrainingMatrixOperation::TrainingMatrixOperation(ModelImpl* model, TrainingMatri
 }
 
 ALUVectorOperation::ALUVectorOperation(ModelImpl* model, OpCode opCode, ProducerOperation* src1, ProducerOperation* src2) : Operation(model, src1->length()), ConsumerOperation(src1, src2), opCode_(opCode), imm_(0.0f) {
-    if (isImmediate()) {
+    if (isImmediateOp()) {
         assert(src2 != NULL);
         assert(src2->length() == 1);
     }
     assert(src1 != NULL);
     switch(opCode_) {
-        case ADD:
-        case SUB:
-        case MUL:
-        case DIV:
+        case FADD:
+        case FSUB:
+        case FMUL:
+        case FDIV:
+        case FMIN:
+        case FMAX:
+        case IADD:
+        case ISUB:
+        case IMUL:
+        case IDIV:
+        case IMIN:
+        case IMAX:
         case AND:
         case OR:
+        case XOR:
         case EQ:
         case NEQ:
         case LT:
         case LEQ:
         case GT:
         case GEQ:
-        case MIN:
-        case MAX:
-        case MSE:
             assert(src2 != NULL && src1->length() == src2->length());
     }
 }
 
 ALUVectorOperation::ALUVectorOperation(ModelImpl* model, OpCode opCode, ProducerOperation* src1, float imm) : Operation(model, src1->length()), ConsumerOperation(src1), opCode_(opCode), imm_(imm) {
-    assert(isImmediate());
+    assert(isImmediateOp());
     assert(src1 != NULL);
 }
 
@@ -1043,16 +988,21 @@ std::string TrainingMatrixOperation::printOperationType() {
 
 std::string ALUVectorOperation::printOperationType() {
     switch(opCode_) {
-        case ADD: return "ADD";
-        case SUB: return "SUB";
-        case MUL: return "MUL";
-        case DIV: return "DIV";
+        case FADD: return "FADD";
+        case FSUB: return "FSUB";
+        case FMUL: return "FMUL";
+        case FDIV: return "FDIV";
+        case IADD: return "IADD";
+        case ISUB: return "ISUB";
+        case IMUL: return "IMUL";
+        case IDIV: return "IDIV";
         case ADDI: return "ADDI";
         case SUBI: return "SUBI";
         case MULI: return "MULI";
         case DIVI: return "DIVI";
         case AND: return "AND";
         case OR: return "OR";
+        case XOR: return "XOR";
         case NOT: return "NOT";
         case EQ: return "EQ";
         case NEQ: return "NEQ";
@@ -1060,9 +1010,10 @@ std::string ALUVectorOperation::printOperationType() {
         case LEQ: return "LEQ";
         case GT: return "GT";
         case GEQ: return "GEQ";
-        case MIN: return "MIN";
-        case MAX: return "MAX";
-        case MSE: return "MSE";
+        case FMIN: return "MIN";
+        case FMAX: return "MAX";
+        case IMIN: return "IMIN";
+        case IMAX: return "IMAX";
         case SIG: return "SIG";
         case TANH: return "TANH";
         case EXP: return "EXP";

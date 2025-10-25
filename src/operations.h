@@ -282,16 +282,43 @@ class CoalescedTrainingOperationSet {
 class ALUVectorOperation : public ProducerOperation, public ConsumerOperation, public CoreOperation {
 
     public:
-
-        enum OpCode {
-            ADD, SUB, MUL, DIV,                                                 /* Arithmetic */
-            ADDI, SUBI, MULI, DIVI,                                             /* Arithmetic immediate */
-            AND, OR, NOT,                                                       /* Logical */
-            EQ, NEQ, LT, LEQ, GT, GEQ,                                          /* Comparison */
-            MIN, MAX,                                                           /* Min/Max */
-            MSE,                                                                /* Other binary */
-            SIG, TANH, EXP, LOG, RELU, RELUD, LOG_SOFTMAX, LOG_SOFTMAXD, RNDCMP /* Nonlinear */
-        };
+     enum OpCode {
+         FADD,
+         FSUB,
+         FMUL,
+         FDIV, // Arithmetic
+         IADD,
+         ISUB,
+         IMUL,
+         IDIV, // Integer arithmetic
+         ADDI,
+         SUBI,
+         MULI,
+         DIVI, // Arithmetic immediate(Not implemented in simulator yet)
+         AND,
+         OR,
+         XOR,
+         NOT, // Logical
+         EQ,
+         NEQ,
+         LT,
+         LEQ,
+         GT,
+         GEQ, // Comparison(Not implemented in simulator yet)
+         FMIN,
+         FMAX, // Min/Max
+         IMIN,
+         IMAX, // Integer Min/Max
+         SIG,
+         TANH,
+         EXP,
+         LOG,
+         RELU,
+         RELUD,
+         LOG_SOFTMAX,
+         LOG_SOFTMAXD,
+         RNDCMP // Nonlinear
+     };
 
     protected:
 
@@ -304,7 +331,11 @@ class ALUVectorOperation : public ProducerOperation, public ConsumerOperation, p
         ALUVectorOperation(ModelImpl* model, OpCode opCode, ProducerOperation* src1, float imm);
 
         OpCode getOpCode() { return opCode_; }
-        bool isImmediate() { return opCode_ == ADDI || opCode_ == SUBI || opCode_ == MULI || opCode_ == DIVI; }
+        bool isImmediateOp() { return opCode_ == ADDI || opCode_ == SUBI || opCode_ == MULI || opCode_ == DIVI; }
+        bool isIntegerOp() {
+            return opCode_ == IADD || opCode_ == ISUB || opCode_ == IMUL || opCode_ == IDIV ||
+                   opCode_ == IMIN || opCode_ == IMAX;
+        }
         float getImmediate() { return imm_; }
 
         std::string printNodeStyle();

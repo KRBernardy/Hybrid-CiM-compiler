@@ -372,20 +372,24 @@ json CodeGenerator::jsonGen(TrainingMatrixOperation *trainOp, int tileID, int co
 
 std::string CodeGenerator::codegen(ALUVectorOperation* aluOp) {
     std::stringstream ss;
-    ss << "alu";
-    switch(aluOp->getOpCode()) {
-        case ALUVectorOperation::MULI:
-            ss << "i";
+    if (aluOp->isIntegerOp()) {
+        ss << "ivfu('";
+    } else {
+        ss << "fvfu('";
     }
-    ss << "('";
     switch(aluOp->getOpCode()) {
-        case ALUVectorOperation::ADD: ss << "add"; break;
-        case ALUVectorOperation::SUB: ss << "sub"; break;
-        case ALUVectorOperation::MUL:
+        case ALUVectorOperation::IADD:
+        case ALUVectorOperation::FADD: ss << "add"; break;
+        case ALUVectorOperation::ISUB:
+        case ALUVectorOperation::FSUB: ss << "sub"; break;
+        case ALUVectorOperation::IMUL:
+        case ALUVectorOperation::FMUL:
         case ALUVectorOperation::MULI: ss << "mul"; break;
-        case ALUVectorOperation::DIV: ss << "div"; break;
+        case ALUVectorOperation::IDIV:
+        case ALUVectorOperation::FDIV: ss << "div"; break;
         case ALUVectorOperation::AND: ss << "and"; break;
         case ALUVectorOperation::OR: ss << "or"; break;
+        case ALUVectorOperation::XOR: ss << "xor"; break;
         case ALUVectorOperation::NOT: ss << "not"; break;
         case ALUVectorOperation::EQ: ss << "eq"; break;
         case ALUVectorOperation::NEQ: ss << "neq"; break;
@@ -393,9 +397,10 @@ std::string CodeGenerator::codegen(ALUVectorOperation* aluOp) {
         case ALUVectorOperation::LEQ: ss << "leq"; break;
         case ALUVectorOperation::GT: ss << "gt"; break;
         case ALUVectorOperation::GEQ: ss << "geq"; break;
-        case ALUVectorOperation::MIN: ss << "min"; break;
-        case ALUVectorOperation::MAX: ss << "max"; break;
-        case ALUVectorOperation::MSE: ss << "mse"; break;
+        case ALUVectorOperation::IMIN:
+        case ALUVectorOperation::FMIN: ss << "min"; break;
+        case ALUVectorOperation::IMAX:
+        case ALUVectorOperation::FMAX: ss << "max"; break;
         case ALUVectorOperation::SIG: ss << "sig"; break;
         case ALUVectorOperation::TANH: ss << "tanh"; break;
         case ALUVectorOperation::EXP: ss << "exp"; break;
@@ -412,7 +417,7 @@ std::string CodeGenerator::codegen(ALUVectorOperation* aluOp) {
     if(aluOp->numOperands() > 1) {
         ss << "r2=" << registerAllocator_->getRegister(aluOp->getOperand(1)) << ", ";
     }
-    if(aluOp->isImmediate()) {
+    if(aluOp->isImmediateOp()) {
         ss << "imm=" << aluOp->getImmediate() << ", ";
     }
     ss << "vec=" << aluOp->length()
@@ -422,26 +427,24 @@ std::string CodeGenerator::codegen(ALUVectorOperation* aluOp) {
 
 json CodeGenerator::jsonGen(ALUVectorOperation *aluOp, int tileID, int coreID) {
     json j;
-    switch (aluOp->getOpCode()) {
-        case ALUVectorOperation::ADDI:
-        case ALUVectorOperation::SUBI:
-        case ALUVectorOperation::MULI:
-        case ALUVectorOperation::DIVI:
-            j["type"] = "vfu_i";
-            break;
-        default:
-            j["type"] = "vfu";
-            break;
+    if (aluOp->isIntegerOp()) {
+        j["type"] = "ivfu";
+    } else {
+        j["type"] = "fvfu";
     }
     j["tile"] = tileID;
     j["core"] = coreID;
     switch (aluOp->getOpCode()) {
-    case ALUVectorOperation::ADD: j["opcode"] = "add"; break;
-    case ALUVectorOperation::SUB: j["opcode"] = "sub"; break;
-    case ALUVectorOperation::MUL:
+    case ALUVectorOperation::IADD:
+    case ALUVectorOperation::FADD: j["opcode"] = "add"; break;
+    case ALUVectorOperation::ISUB:
+    case ALUVectorOperation::FSUB: j["opcode"] = "sub"; break;
+    case ALUVectorOperation::IMUL:
+    case ALUVectorOperation::FMUL: 
     case ALUVectorOperation::MULI: j["opcode"] = "mul"; break;
-    case ALUVectorOperation::DIV: j["opcode"] = "div"; break;
-    case ALUVectorOperation::AND: j["opcode"] = "and"; break;
+    case ALUVectorOperation::IDIV:
+    case ALUVectorOperation::FDIV: j["opcode"] = "div"; break;
+    case ALUVectorOperation::XOR: j["opcode"] = "xor"; break;
     case ALUVectorOperation::OR: j["opcode"] = "or"; break;
     case ALUVectorOperation::NOT: j["opcode"] = "not"; break;
     case ALUVectorOperation::EQ: j["opcode"] = "eq"; break;
@@ -450,9 +453,10 @@ json CodeGenerator::jsonGen(ALUVectorOperation *aluOp, int tileID, int coreID) {
     case ALUVectorOperation::LEQ: j["opcode"] = "leq"; break;
     case ALUVectorOperation::GT: j["opcode"] = "gt"; break;
     case ALUVectorOperation::GEQ: j["opcode"] = "geq"; break;
-    case ALUVectorOperation::MIN: j["opcode"] = "min"; break;
-    case ALUVectorOperation::MAX: j["opcode"] = "max"; break;
-    case ALUVectorOperation::MSE: j["opcode"] = "mse"; break;
+    case ALUVectorOperation::IMIN:
+    case ALUVectorOperation::FMIN: j["opcode"] = "min"; break;
+    case ALUVectorOperation::IMAX:
+    case ALUVectorOperation::FMAX: j["opcode"] = "max"; break;
     case ALUVectorOperation::SIG: j["opcode"] = "sig"; break;
     case ALUVectorOperation::TANH: j["opcode"] = "tanh"; break;
     case ALUVectorOperation::EXP: j["opcode"] = "exp"; break;
@@ -469,7 +473,7 @@ json CodeGenerator::jsonGen(ALUVectorOperation *aluOp, int tileID, int coreID) {
     if (aluOp->numOperands() > 1) {
         j["read_2"] = registerAllocator_->getRegister(aluOp->getOperand(1));
     }
-    if (aluOp->isImmediate()) {
+    if (aluOp->isImmediateOp()) {
         j["imm"] = aluOp->getImmediate();
     }
     j["vec"] = aluOp->length();
