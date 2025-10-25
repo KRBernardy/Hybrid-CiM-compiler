@@ -317,7 +317,9 @@ class ALUVectorOperation : public ProducerOperation, public ConsumerOperation, p
          RELUD,
          LOG_SOFTMAX,
          LOG_SOFTMAXD,
-         RNDCMP // Nonlinear
+         RNDCMP, // Nonlinear
+         INTtoFP,
+         FPtoINT // Type conversion
      };
 
     protected:

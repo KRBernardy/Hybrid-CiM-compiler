@@ -383,10 +383,13 @@ std::string CodeGenerator::codegen(ALUVectorOperation* aluOp) {
         case ALUVectorOperation::ISUB:
         case ALUVectorOperation::FSUB: ss << "sub"; break;
         case ALUVectorOperation::IMUL:
-        case ALUVectorOperation::FMUL:
-        case ALUVectorOperation::MULI: ss << "mul"; break;
+        case ALUVectorOperation::FMUL: ss << "mul"; break;
         case ALUVectorOperation::IDIV:
         case ALUVectorOperation::FDIV: ss << "div"; break;
+        case ALUVectorOperation::ADDI: ss << "addi"; break;
+        case ALUVectorOperation::SUBI: ss << "subi"; break;
+        case ALUVectorOperation::MULI: ss << "muli"; break;
+        case ALUVectorOperation::DIVI: ss << "divi"; break;
         case ALUVectorOperation::AND: ss << "and"; break;
         case ALUVectorOperation::OR: ss << "or"; break;
         case ALUVectorOperation::XOR: ss << "xor"; break;
@@ -410,6 +413,9 @@ std::string CodeGenerator::codegen(ALUVectorOperation* aluOp) {
         case ALUVectorOperation::LOG_SOFTMAX: ss << "log_softmax"; break;
         case ALUVectorOperation::LOG_SOFTMAXD: ss << "log_softmaxd"; break;
         case ALUVectorOperation::RNDCMP: ss << "rndcmp"; break;
+        case ALUVectorOperation::INTtoFP: ss << "int_to_fp"; break;
+        case ALUVectorOperation::FPtoINT: ss << "fp_to_int"; break;
+        default: assert(0 && "Unsupported ALU operation!"); break;
     }
     ss << "', "
        << "d1=" << registerAllocator_->getRegister(aluOp) << ", "
@@ -440,12 +446,16 @@ json CodeGenerator::jsonGen(ALUVectorOperation *aluOp, int tileID, int coreID) {
     case ALUVectorOperation::ISUB:
     case ALUVectorOperation::FSUB: j["opcode"] = "sub"; break;
     case ALUVectorOperation::IMUL:
-    case ALUVectorOperation::FMUL: 
-    case ALUVectorOperation::MULI: j["opcode"] = "mul"; break;
+    case ALUVectorOperation::FMUL: j["opcode"] = "mul"; break;
     case ALUVectorOperation::IDIV:
     case ALUVectorOperation::FDIV: j["opcode"] = "div"; break;
-    case ALUVectorOperation::XOR: j["opcode"] = "xor"; break;
+    case ALUVectorOperation::ADDI: j["opcode"] = "addi"; break;
+    case ALUVectorOperation::SUBI: j["opcode"] = "subi"; break;
+    case ALUVectorOperation::MULI: j["opcode"] = "muli"; break;
+    case ALUVectorOperation::DIVI: j["opcode"] = "divi"; break;
+    case ALUVectorOperation::AND: j["opcode"] = "and"; break;
     case ALUVectorOperation::OR: j["opcode"] = "or"; break;
+    case ALUVectorOperation::XOR: j["opcode"] = "xor"; break;
     case ALUVectorOperation::NOT: j["opcode"] = "not"; break;
     case ALUVectorOperation::EQ: j["opcode"] = "eq"; break;
     case ALUVectorOperation::NEQ: j["opcode"] = "neq"; break;
@@ -466,6 +476,8 @@ json CodeGenerator::jsonGen(ALUVectorOperation *aluOp, int tileID, int coreID) {
     case ALUVectorOperation::LOG_SOFTMAX: j["opcode"] = "log_softmax"; break;
     case ALUVectorOperation::LOG_SOFTMAXD: j["opcode"] = "log_softmaxd"; break;
     case ALUVectorOperation::RNDCMP: j["opcode"] = "rndcmp"; break;
+    case ALUVectorOperation::INTtoFP: j["opcode"] = "int_to_fp"; break;
+    case ALUVectorOperation::FPtoINT: j["opcode"] = "fp_to_int"; break;
     default: assert(0 && "Unsupported ALU operation!"); break;
     }
     j["dest"] = registerAllocator_->getRegister(aluOp);

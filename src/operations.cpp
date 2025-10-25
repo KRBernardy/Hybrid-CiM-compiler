@@ -134,6 +134,42 @@ Vector rndcmp(Vector x) {
     return unaryOp(x, ALUVectorOperation::RNDCMP);
 }
 
+Vector quant(Vector xparam, float scale, int zero_point = 0) {
+    VectorImpl* x = xparam.unwrap();
+    VectorImpl* y = new VectorImpl(x->getModel(), x->length());
+    y->checkCompatibility(x);
+    for(unsigned int t = 0; t < x->nTiles(); ++t) {
+        ProducerOperation* scaled = new ALUVectorOperation(x->getModel(), ALUVectorOperation::DIVI, x->getTile(t), scale);
+        ProducerOperation* rounded;
+        if (zero_point != 0) {
+            assert(false && "Quantization with non-zero zero_point is not supported yet.");
+        }
+        else {
+            rounded = new ALUVectorOperation(x->getModel(), ALUVectorOperation::FPtoINT, scaled);
+        }
+        y->setTile(t, rounded);
+    }
+    return Vector(y);
+}
+
+Vector dequant(Vector xparam, float scale, int zero_point = 0) {
+    VectorImpl* x = xparam.unwrap();
+    VectorImpl* y = new VectorImpl(x->getModel(), x->length());
+    y->checkCompatibility(x);
+    for(unsigned int t = 0; t < x->nTiles(); ++t) {
+        ProducerOperation* intToFp = new ALUVectorOperation(x->getModel(), ALUVectorOperation::INTtoFP, x->getTile(t));
+        ProducerOperation* scaled;
+        if (zero_point != 0) {
+            assert(false && "Dequantization with non-zero zero_point is not supported yet.");
+        }
+        else {
+            scaled = new ALUVectorOperation(x->getModel(), ALUVectorOperation::MULI, intToFp, scale);
+        }
+        y->setTile(t, scaled);
+    }
+    return Vector(y);
+}
+
 Vector binaryOp(Vector x1param, Vector x2param, ALUVectorOperation::OpCode op) {
     VectorImpl* x1 = x1param.unwrap();
     VectorImpl* x2 = x2param.unwrap();
@@ -314,6 +350,59 @@ ImagePixelStream avgpool(ImagePixelStream xsparam, unsigned int hspan, unsigned 
                 if((hh == hspan - 1 || hi == xs->imageHeight() - 1) && (ww == wspan - 1 || wi == xs->imageWidth() - 1)) {
                     ysTile->add(ho, wo, new ALUVectorOperation(accum[ho][wo][accumIdx]->getModel(), ALUVectorOperation::MULI, accum[ho][wo][accumIdx], 1.0 / ((hh + 1) * (ww + 1))));
                 }
+            }
+        }
+    }
+    return ImagePixelStream(ys);
+}
+
+ImagePixelStream quant(ImagePixelStream xsparam, float scale, int zero_point = 0) {
+    ImagePixelStreamImpl* xs = xsparam.unwrap();
+    ImagePixelStreamImpl* ys = new ImagePixelStreamImpl(xs->getModel(), xs->imageWidth(), xs->imageHeight(), xs->nChannels());
+    ys->checkCompatibility(xs);
+    for(unsigned int t = 0; t < xs->nTiles(); ++t) {
+        ImagePixelStreamTile* xsTile = xs->getTile(t);
+        ImagePixelStreamTile* ysTile = ys->getTile(t);
+
+        for(unsigned int h = 0; h < xsTile->imageHeight(); ++h) {
+            for(unsigned int w = 0; w < xsTile->imageWidth(); ++w) {
+                ProducerOperation* xPixel = xsTile->get(h, w);
+                ProducerOperation* scaled = new ALUVectorOperation(ysTile->getModel(), ALUVectorOperation::DIVI, xPixel, scale);
+                ProducerOperation* yPixel;
+                if (zero_point != 0) {
+                    assert(false && "Quantization with non-zero zero_point is not supported yet.");
+                }
+                else {
+                    yPixel = new ALUVectorOperation(ysTile->getModel(), ALUVectorOperation::FPtoINT, scaled);
+                }
+                ysTile->add(h, w, yPixel);
+            }
+        }
+    }
+    return ImagePixelStream(ys);
+}
+
+ImagePixelStream dequant(ImagePixelStream xsparam, float scale, int zero_point = 0) {
+    ImagePixelStreamImpl* xs = xsparam.unwrap();
+    ImagePixelStreamImpl* ys = new ImagePixelStreamImpl(xs->getModel(), xs->imageWidth(), xs->imageHeight(), xs->nChannels());
+    ys->checkCompatibility(xs);
+    for(unsigned int t = 0; t < xs->nTiles(); ++t) {
+        ImagePixelStreamTile* xsTile = xs->getTile(t);
+        ImagePixelStreamTile* ysTile = ys->getTile(t);
+
+        for(unsigned int h = 0; h < xsTile->imageHeight(); ++h) {
+            for(unsigned int w = 0; w < xsTile->imageWidth(); ++w) {
+                ProducerOperation* xPixel = xsTile->get(h, w);
+                ProducerOperation* intToFp = new ALUVectorOperation(ysTile->getModel(), ALUVectorOperation::INTtoFP, xPixel);
+                ProducerOperation* yPixel;
+                if (zero_point != 0) {
+                    assert(false && "Dequantization with non-zero zero_point is not supported yet.");
+                }
+                else {
+                    yPixel = new ALUVectorOperation(ysTile->getModel(), ALUVectorOperation::MULI, intToFp, scale);
+                }
+                
+                ysTile->add(h, w, yPixel);
             }
         }
     }
@@ -1023,6 +1112,8 @@ std::string ALUVectorOperation::printOperationType() {
         case LOG_SOFTMAX: return "LOG_SOFTMAX";
         case LOG_SOFTMAXD: return "LOG_SOFTMAXD";
         case RNDCMP: return "RNDCMP";
+        case INTtoFP: return "INTtoFP";
+        case FPtoINT: return "FPtoINT";
     }
 }
 

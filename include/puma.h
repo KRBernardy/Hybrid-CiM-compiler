@@ -271,6 +271,8 @@ Vector relud(Vector x);
 Vector log_softmax(Vector x);
 Vector log_softmaxd(Vector x);
 Vector rndcmp(Vector x);
+Vector quant(Vector x, float scale, int zero_point);
+Vector dequant(Vector x, float scale, int zero_point);
 
 // Vector element-wise binary operations
 Vector operator+(Vector x1, Vector x2);
@@ -297,6 +299,8 @@ ImagePixelStream sig(ImagePixelStream xs);
 ImagePixelStream relu(ImagePixelStream xs);
 ImagePixelStream maxpool(ImagePixelStream xs, unsigned int hspan, unsigned int wspan);
 ImagePixelStream avgpool(ImagePixelStream xs, unsigned int hspan, unsigned int wspan);
+ImagePixelStream quant(ImagePixelStream x, float scale, int zero_point);
+ImagePixelStream dequant(ImagePixelStream x, float scale, int zero_point);
 
 // Constant matrix operations
 Vector operator*(ConstantMatrix M, Vector x);
@@ -310,9 +314,8 @@ ImagePixelStream unflatten(Vector x, unsigned int imageWidth, unsigned int image
 ImagePixelStream merge(std::vector<ImagePixelStream>& streams);
 ImagePixelStream batchnorm(ImagePixelStream xs, BatchNormParam param);
 
-    // Training matrix operations
-    Vector
-    operator*(TrainingMatrix M, Vector x);
+// Training matrix operations
+Vector operator*(TrainingMatrix M, Vector x);
 Vector operator*(Transpose M, Vector x);
 void operator-=(TrainingMatrix M, OuterProduct op);
 
