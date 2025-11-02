@@ -17,14 +17,15 @@ class ModelInstanceImpl {
         ModelImpl* model_;
         Placer* placer_;
         RegisterAllocator* registerAllocator_;
-        std::map<std::string, float*> tensorData_;
+        std::map<std::string, unsigned int*> matrixData_;
+        std::map<std::string, float*> vectorData_;
 
     public:
 
         ModelInstanceImpl(ModelImpl* model, Placer* placer, RegisterAllocator* registerAllocator);
 
-        void bind(std::string tensorName, float* data);
-        void load(std::string layerName, float* weights);
+        void bind(std::string vectorName, float* data);
+        void bind(std::string matrixName, unsigned int* data);
         void generateData();
 
 };

@@ -451,10 +451,12 @@ class BatchNormParamImpl : public AbstractTensor {
     protected:
 
         unsigned int nChannels_;
-        ConstantVectorImpl* weights_;
-        ConstantVectorImpl* biases_;
-        ConstantVectorImpl* means_;
-        ConstantVectorImpl* variances_;
+        // scales and shifts are precomputed from weights, biases, means, variances and epsilon
+        // scales_ = weights / sqrt(variances + epsilon)
+        // shifts_ = biases - means * scales
+        // When calculating BatchNorm: output = input * scales_ + shifts_
+        ConstantVectorImpl* scales_;
+        ConstantVectorImpl* shifts_;
 
     public:
 
@@ -462,10 +464,8 @@ class BatchNormParamImpl : public AbstractTensor {
         ~BatchNormParamImpl();
 
         unsigned int nChannels() { return nChannels_; }
-        ConstantVectorImpl *getWeight() { return weights_; }
-        ConstantVectorImpl *getBias() { return biases_; }
-        ConstantVectorImpl *getMean() { return means_; }
-        ConstantVectorImpl *getVariance() { return variances_; }
+        ConstantVectorImpl *getScale() { return scales_; }
+        ConstantVectorImpl *getShift() { return shifts_; }
 
         void checkCompatibility(AbstractImagePixelStream* vs);
 

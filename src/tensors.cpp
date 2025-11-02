@@ -299,10 +299,8 @@ TrainingMatrixImpl::TrainingMatrixImpl(ModelImpl* model, std::string name, unsig
 BatchNormParamImpl::BatchNormParamImpl(ModelImpl *model, std::string name, unsigned int nChannels)
     : AbstractTensor(model, name), nChannels_(nChannels)
 {
-    weights_ = new ConstantVectorImpl(model, name + "_weights", nChannels);
-    biases_ = new ConstantVectorImpl(model, name + "_biases", nChannels);
-    means_ = new ConstantVectorImpl(model, name + "_means", nChannels);
-    variances_ = new ConstantVectorImpl(model, name + "_variances", nChannels);
+    scales_ = new ConstantVectorImpl(model, name + "_scales", nChannels);
+    shifts_ = new ConstantVectorImpl(model, name + "_shifts", nChannels);
 
 }
 

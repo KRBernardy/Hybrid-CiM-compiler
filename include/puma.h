@@ -252,8 +252,8 @@ class ModelInstance {
 
         static ModelInstance create(Model model);
 
-        void bind(std::string tensorName, float* data);
-        void load(std::string layerName, float* weights);
+        void bind(std::string vectorName, float* data);
+        void bind(std::string matrixName, unsigned int* data);
         void generateData();
 
         ModelInstanceImpl* unwrap();

@@ -33,12 +33,12 @@ ModelInstance ModelInstance::create(Model model) {
     return instance;
 }
 
-void ModelInstance::bind(std::string tensorName, float* data) {
-    impl_->bind(tensorName, data);
+void ModelInstance::bind(std::string vectorName, float* data) {
+    impl_->bind(vectorName, data);
 }
 
-void ModelInstance::load(std::string layerName, float* weights) {
-    impl_->load(layerName, weights);
+void ModelInstance::bind(std::string matrixName, unsigned int* data) {
+    impl_->bind(matrixName, data);
 }
 
 void ModelInstance::generateData() {
@@ -53,12 +53,12 @@ ModelInstanceImpl::ModelInstanceImpl(ModelImpl* model, Placer* placer, RegisterA
     : model_(model), placer_(placer), registerAllocator_(registerAllocator) 
 { }
 
-void ModelInstanceImpl::bind(std::string tensorName, float* data) {
-    tensorData_[tensorName] = data;
+void ModelInstanceImpl::bind(std::string vectorName, float* data) {
+    vectorData_[vectorName] = data;
 }
 
-void ModelInstanceImpl::load(std::string layerName, float* weights) {
-    bind(layerName + "_weight", weights);
+void ModelInstanceImpl::bind(std::string matrixName, unsigned int* data) {
+    matrixData_[matrixName] = data;
 }
 
 void ModelInstanceImpl::generateData() {
@@ -81,8 +81,8 @@ void ModelInstanceImpl::generateData() {
     for(auto m = model_->const_mat_begin(); m != model_->const_mat_end(); ++m) {
         ConstantMatrixImpl* mat = *m;
         std::string matName = mat->name();
-        assert(tensorData_.count(matName) && "No data provided for matrix");
-        float* matData = tensorData_[matName];
+        assert(matrixData_.count(matName) && "No data provided for matrix");
+        unsigned int* matData = matrixData_[matName];
         for(unsigned int h = 0; h < mat->nHeightTiles(); ++h) {
             for(unsigned int w = 0; w < mat->nWidthTiles(); ++w) {
                 ConstantMatrixTile* matTile = mat->getTile(h, w);
@@ -102,11 +102,11 @@ void ModelInstanceImpl::generateData() {
                     for(unsigned int col = 0; col < MVMU_DIM; ++col) {
                         if(row < matTile->height() && col < matTile->width()) {
                             //mvmuData << matData[(h*MVMU_DIM + row)*mat->width() + w*MVMU_DIM + col] << " ";
-                            float data = matData[(h*MVMU_DIM + row)*mat->width() + w*MVMU_DIM + col];
+                            unsigned int data = matData[(h*MVMU_DIM + row)*mat->width() + w*MVMU_DIM + col];
                             temp["value"].push_back(data);
                         } else {
                             //mvmuData << "0.0 ";
-                            temp["value"].push_back(0.0);
+                            temp["value"].push_back(0);
                         }
                     }
                 }
@@ -118,8 +118,8 @@ void ModelInstanceImpl::generateData() {
     for(auto m = model_->conv_mat_begin(); m != model_->conv_mat_end(); ++m) {
         ConvolutionalConstantMatrixImpl* mat = *m;
         std::string matName = mat->name();
-        assert(tensorData_.count(matName) && "No data provided for matrix");
-        float* matData = tensorData_[matName];
+        assert(matrixData_.count(matName) && "No data provided for matrix");
+        unsigned int* matData = matrixData_[matName];
         for(unsigned int kh = 0; kh < mat->getKernelHeight(); ++kh) {
             for(unsigned int kw = 0; kw < mat->getKernelWidth(); ++kw) {
                 for(unsigned int h = 0; h < mat->getNOutChannelTiles(); ++h) {
@@ -141,11 +141,11 @@ void ModelInstanceImpl::generateData() {
                             for(unsigned int col = 0; col < MVMU_DIM; ++col) {
                                 if(row < matTile->height() && col < matTile->width()) {
                                     //mvmuData << matData[((kh*mat->getKernelWidth() + kw)*mat->getNOutChannels() + h*MVMU_DIM + row)*mat->getNInChannels() + w*MVMU_DIM + col] << " ";
-                                    float data = matData[((kh*mat->getKernelWidth() + kw)*mat->getNOutChannels() + h*MVMU_DIM + row)*mat->getNInChannels() + w*MVMU_DIM + col];
+                                    unsigned int data = matData[((kh*mat->getKernelWidth() + kw)*mat->getNOutChannels() + h*MVMU_DIM + row)*mat->getNInChannels() + w*MVMU_DIM + col];
                                     temp["value"].push_back(data);
                                 } else {
                                     //mvmuData << "0.0 ";
-                                    temp["value"].push_back(0.0);
+                                    temp["value"].push_back(0);
                                 }
                             }
                         }
@@ -159,8 +159,8 @@ void ModelInstanceImpl::generateData() {
     for (auto v = model_->const_vec_begin(); v != model_->const_vec_end(); ++v) {
         ConstantVectorImpl* vec = *v;
         std::string vecName = vec->name();
-        assert(tensorData_.count(vecName) && "No data provided for vector");
-        float* vecData = tensorData_[vecName];
+        assert(vectorData_.count(vecName) && "No data provided for vector");
+        float* vecData = vectorData_[vecName];
         for (unsigned int t = 0; t < vec->nTiles(); ++t) {
             ConstantVectorTile* tile = vec->getTile(t);
             unsigned int pTile = placer_->getPTile(tile);

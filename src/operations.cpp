@@ -528,25 +528,19 @@ ImagePixelStream batchnorm(ImagePixelStream xsparam, BatchNormParam bnparam) {
     bn->checkCompatibility(xs);
     ModelImpl* model = xs->getModel();
     ImagePixelStreamImpl* ys = new ImagePixelStreamImpl(model, xs->imageWidth(), xs->imageHeight(), xs->nChannels());
-    ConstantVectorImpl *mean = bn->getMean();
-    ConstantVectorImpl* variance = bn->getVariance();
-    ConstantVectorImpl* weight = bn->getWeight();
-    ConstantVectorImpl* bias = bn->getBias();
+    ConstantVectorImpl* scale = bn->getScale();
+    ConstantVectorImpl* shift = bn->getShift();
     for(unsigned int t = 0; t < xs->nTiles(); ++t) {
         ImagePixelStreamTile* xsTile = xs->getTile(t);
         ImagePixelStreamTile* ysTile = ys->getTile(t);
-        ConstantVectorOperation *mean_tile = mean->getTile(t)->getOp();
-        ConstantVectorOperation *variance_tile = variance->getTile(t)->getOp();
-        ConstantVectorOperation *weight_tile = weight->getTile(t)->getOp();
-        ConstantVectorOperation *bias_tile = bias->getTile(t)->getOp();
+        ConstantVectorOperation *scale_tile = scale->getTile(t)->getOp();
+        ConstantVectorOperation *shift_tile = shift->getTile(t)->getOp();
         for (unsigned int h = 0; h < xs->imageHeight(); ++h) {
             for (unsigned int w = 0; w < xs->imageWidth(); ++w) {
                 ProducerOperation* x = xsTile->get(h, w);
-                ProducerOperation* out_1 = new ALUVectorOperation(model, ALUVectorOperation::FSUB, x, mean_tile);
-                ProducerOperation* out_2 = new ALUVectorOperation(model, ALUVectorOperation::FDIV, out_1, variance_tile);
-                ProducerOperation* out_3 = new ALUVectorOperation(model, ALUVectorOperation::FMUL, out_2, weight_tile);
-                ProducerOperation* out_4 = new ALUVectorOperation(model, ALUVectorOperation::FADD, out_3, bias_tile);
-                ysTile->add(h, w, out_4);
+                ProducerOperation* out_1 = new ALUVectorOperation(model, ALUVectorOperation::FMUL, x, scale_tile);
+                ProducerOperation* out_2 = new ALUVectorOperation(model, ALUVectorOperation::FADD, out_1, shift_tile);
+                ysTile->add(h, w, out_2);
             }
         }
     }
