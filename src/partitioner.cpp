@@ -24,8 +24,70 @@
 #include "puma.h"
 #include "tensors.h"
 
-Partitioner::Partitioner(ModelImpl *model, CompilerOptions::GraphPartitioningScheme gp)
-    : model_(model), gp_(gp) {
+Partitioner::Partitioner(ModelImpl *model, CompilerOptions::GraphPartitioningScheme gp, bool useOldPartitioner)
+    : model_(model), gp_(gp), useOldPartitioner_(useOldPartitioner) {
+
+    if (useOldPartitioner_) {
+        std::cout << "Using old partitioner..." << std::endl;
+        old_partitioner_ = new Partitioner_old(model, gp);
+        nVMVMUs_ = old_partitioner_->getNVMVMUs();
+        nVCores_ = old_partitioner_->getNVCores();
+        nVTiles_ = old_partitioner_->getNVTiles();
+        for(auto it = model_->op_begin(); it != model_->op_end(); ++it) {
+            Operation* op = *it;
+            op2vcore_[op] = old_partitioner_->getVCore(op);
+        }
+        for(auto it = model_->const_mat_begin(); it != model_->const_mat_end(); ++it) {
+            ConstantMatrixImpl* mat = *it;
+            for (unsigned int h = 0; h < mat->nHeightTiles(); ++h) {
+                for (unsigned int w = 0; w < mat->nWidthTiles(); ++w) {
+                    ConstantMatrixTile* tile = mat->getTile(h, w);
+                    cmat2vmvmu_[tile] = old_partitioner_->getVMVMU(tile);
+                }
+            }
+        }
+        for(auto it = model_->conv_mat_begin(); it != model_->conv_mat_end(); ++it) {
+            ConvolutionalConstantMatrixImpl* mat = *it;
+            for (unsigned int kh = 0; kh < mat->getKernelHeight(); ++kh) {
+                for (unsigned int kw = 0; kw < mat->getKernelWidth(); ++kw) {
+                    for (unsigned int h = 0; h < mat->getNOutChannelTiles(); ++h) {
+                        for (unsigned int w = 0; w < mat->getNInChannelTiles(); ++w) {
+                            ConstantMatrixTile* tile = mat->getTile(kh, kw, h, w);
+                            cmat2vmvmu_[tile] = old_partitioner_->getVMVMU(tile);
+                        }
+                    }
+                }
+            }
+        }
+        for(auto it = model_->train_mat_begin(); it != model_->train_mat_end(); ++it) {
+            TrainingMatrixImpl* mat = *it;
+            for (unsigned int h = 0; h < mat->nHeightTiles(); ++h) {
+                for (unsigned int w = 0; w < mat->nWidthTiles(); ++w) {
+                    TrainingMatrixTile* tile = mat->getTile(h, w);
+                    tmat2vmvmu_[tile] = old_partitioner_->getVMVMU(tile);
+                }
+            }
+        }
+        for(unsigned int i = 0; i < nVMVMUs_; ++i) {
+            vmvmu2vcore_[i] = old_partitioner_->getVCore(i);
+        }
+        vmvmuType_.resize(nVMVMUs_);
+        for(unsigned int i = 0; i < nVMVMUs_; ++i) {
+            vmvmuType_[i] = old_partitioner_->getVMVMUType(i);
+        }
+        for(unsigned int i = 0; i < nVCores_; ++i) {
+            vcore2vtile_[i] = old_partitioner_->getVTile(i);
+        }
+        vcoreType_.resize(nVCores_);
+        for(unsigned int i = 0; i < nVCores_; ++i) {
+            vcoreType_[i] = old_partitioner_->getVCoreType(i);
+        }
+        vtileType_.resize(nVTiles_);
+        for(unsigned int i = 0; i < nVTiles_; ++i) {
+            vtileType_[i] = old_partitioner_->getVTileType(i);
+        }
+        return;
+    }
     
     // Step 1: Create matrix tile list and assign to virtual MVMUs
     if(gp_ == CompilerOptions::GP_ROW_MAJOR) {
@@ -722,6 +784,10 @@ std::string Partitioner::printAssignment(Operation* op) {
 }
 
 void Partitioner::printReport(std::ofstream& report) {
+    if (useOldPartitioner_) {
+        old_partitioner_->printReport(report);
+        return;
+    }
     report << "Partitioner Report:" << std::endl;
     report << "  Number of virtual MVMUs: " << nVMVMUs_ << std::endl;
     report << "  Number of virtual cores: " << nVCores_ << std::endl;

@@ -224,7 +224,7 @@ void ModelImpl::compile(CompilerOptions& options) {
 
     // Model partitioning
     std::cout << "Partitioning graph... " << std::flush;
-    partitioner_ = new Partitioner(this, options.gp_);
+    partitioner_ = new Partitioner(this, options.gp_, options.useOldPartitioner_);
     std::cout << "done." << std::endl;
     if(options.printDebugInfo_) {
         printGraph(name_ + "-graph1-partitioned.dot");

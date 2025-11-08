@@ -11,6 +11,7 @@
 
 #include "common.h"
 #include "model.h"
+#include "partitioner_old.h"
 
 class ConstantMatrixTile;
 class TrainingMatrixTile;
@@ -22,7 +23,7 @@ class Partitioner {
 
     public:
 
-        Partitioner(ModelImpl* model, CompilerOptions::GraphPartitioningScheme gp);
+        Partitioner(ModelImpl* model, CompilerOptions::GraphPartitioningScheme gp, bool useOldPartitioner=false);
 
         unsigned int getVMVMU(Operation* op);
         unsigned int getVCore(Operation* op);
@@ -51,6 +52,8 @@ class Partitioner {
 
         ModelImpl* model_;
         CompilerOptions::GraphPartitioningScheme gp_;
+        bool useOldPartitioner_;
+        Partitioner_old* old_partitioner_;
 
         unsigned int nVMVMUs_;
         unsigned int nVCores_;

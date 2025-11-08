@@ -43,9 +43,11 @@ ConfigGenerator::ConfigGenerator(ModelImpl* model, Placer* placer)
 json ConfigGenerator::configGen() {
     json j;
     j["model_name"] = model_->getName();
-    j["TilesPerNode"] = placer_->getNPTiles();
-    j["CoresPerTile"] = N_CORES_PER_TILE;
-    j["MVMUsPerCore"] = model_->getModelType() == ModelImpl::INFERENCE ? N_CONSTANT_MVMUS_PER_CORE : N_TRAINING_MVMUS_PER_CORE;
+    j["num_tiles_per_node"] = placer_->getNPTiles();
+    j["num_cores_per_tile"] = N_CORES_PER_TILE;
+    j["num_mvmus_per_core"] = model_->getModelType() == ModelImpl::INFERENCE
+                                  ? N_CONSTANT_MVMUS_PER_CORE
+                                  : N_TRAINING_MVMUS_PER_CORE;
 
     json core_config;
     core_config["dataMem_size"] = REGISTER_FILE_SIZE;
