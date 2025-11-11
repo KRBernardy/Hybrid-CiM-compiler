@@ -519,7 +519,7 @@ ImagePixelStream conv2d_forward(ConvolutionalConstantMatrix Mparam, ImagePixelSt
             }
         }
     }
-    return dequant((ys[kernelHeight * kernelWidth * nInChannelTiles - 1]), M->getOutputScale(), M->getOutputZeroPoint());
+    return dequant(ImagePixelStream(ys[kernelHeight * kernelWidth * nInChannelTiles - 1]), M->getOutputScale(), M->getOutputZeroPoint());
 }
 
 ImagePixelStream batchnorm(ImagePixelStream xsparam, BatchNormParam bnparam) {

@@ -43,120 +43,127 @@ int main() {
 
     // Model definition
     // First convolutional layer
-    auto out_conv1 = conv2d(model, "conv1", kernel_size_conv1, in_stream, 1, 1, 1, 1, 1, 0.17700572,
-                            0.2892844, 0, 0);
+    auto out_conv1 = conv2d(model, "conv1", kernel_size_conv1, in_stream, 1, 1, 1, 1, 1, 0.06605943,
+                            0.34956446, 0, 0);
     auto out_conv1_bn = batchnorm2d(model, "bn1", out_conv1, out_channels_conv1);
     auto out_conv1_activated = relu(out_conv1_bn);
 
     // Residual block 1
+    auto out_layer1_block1_shortcut = out_conv1_activated;
     auto out_layer1_block1_conv1 =
         conv2d(model, "layer1.0.conv1", kernel_size_layer1, out_conv1_activated, 1, 1, 1, 1, 1,
-               0.24075675, 0.12204861, 0, 0);
+               0.27584392, 0.099902876, 0, 0);
     auto out_layer1_block1_conv1_bn = batchnorm2d(model, "layer1.0.bn1", out_layer1_block1_conv1, out_channels_layer1);
     auto out_layer1_block1_conv1_activated = relu(out_layer1_block1_conv1_bn);
     auto out_layer1_block1_conv2 =
         conv2d(model, "layer1.0.conv2", kernel_size_layer1, out_layer1_block1_conv1_activated, 1, 1,
-               1, 1, 1, 0.21807411, 0.10134202, 0, 0);
+               1, 1, 1, 0.11274623, 0.091751166, 0, 0);
     auto out_layer1_block1_conv2_bn = batchnorm2d(model, "layer1.0.bn2", out_layer1_block1_conv2, out_channels_layer1);
-    auto out_layer1_block1 = relu(out_layer1_block1_conv2_bn);
+    auto out_layer1_block1 = relu(out_layer1_block1_conv2_bn + out_layer1_block1_shortcut);
+    auto out_layer1_block2_shortcut = out_layer1_block1;
     auto out_layer1_block2_conv1 =
         conv2d(model, "layer1.1.conv1", kernel_size_layer1, out_layer1_block1, 1, 1, 1, 1, 1,
-               0.36550424, 0.10236664, 0, 0);
+               0.30704272, 0.086507455, 0, 0);
     auto out_layer1_block2_conv1_bn = batchnorm2d(model, "layer1.1.bn1", out_layer1_block2_conv1, out_channels_layer1);
     auto out_layer1_block2_conv1_activated = relu(out_layer1_block2_conv1_bn);
     auto out_layer1_block2_conv2 =
         conv2d(model, "layer1.1.conv2", kernel_size_layer1, out_layer1_block2_conv1_activated, 1, 1,
-               1, 1, 1, 0.14136973, 0.083964445, 0, 0);
+               1, 1, 1, 0.13923879, 0.077431895, 0, 0);
     auto out_layer1_block2_conv2_bn = batchnorm2d(model, "layer1.1.bn2", out_layer1_block2_conv2, out_channels_layer1);
-    auto out_layer1_block2 = relu(out_layer1_block2_conv2_bn);
+    auto out_layer1_block2 = relu(out_layer1_block2_conv2_bn + out_layer1_block2_shortcut);
+    auto out_layer1_block3_shortcut = out_layer1_block2;
     auto out_layer1_block3_conv1 =
         conv2d(model, "layer1.2.conv1", kernel_size_layer1, out_layer1_block2, 1, 1, 1, 1, 1,
-               0.3667295, 0.089865975, 0, 0);
+               0.3489386, 0.11417149, 0, 0);
     auto out_layer1_block3_conv1_bn = batchnorm2d(model, "layer1.2.bn1", out_layer1_block3_conv1, out_channels_layer1);
     auto out_layer1_block3_conv1_activated = relu(out_layer1_block3_conv1_bn);
     auto out_layer1_block3_conv2 =
         conv2d(model, "layer1.2.conv2", kernel_size_layer1, out_layer1_block3_conv1_activated, 1, 1,
-               1, 1, 1, 0.07379723, 0.08903534, 0, 0);
+               1, 1, 1, 0.25834858, 0.08604887, 0, 0);
     auto out_layer1_block3_conv2_bn = batchnorm2d(model, "layer1.2.bn2", out_layer1_block3_conv2, out_channels_layer1);
-    auto out_layer1 = relu(out_layer1_block3_conv2_bn);
+    auto out_layer1 = relu(out_layer1_block3_conv2_bn + out_layer1_block3_shortcut);
 
     // Residual block 2
     auto out_layer2_block1_conv1 = conv2d(model, "layer2.0.conv1", kernel_size_layer2_block1_conv1,
-                                          out_layer1, 2, 2, 1, 1, 1, 0.42641595, 0.11272617, 0, 0);
+                                          out_layer1, 2, 2, 1, 1, 1, 0.5139623, 0.101049684, 0, 0);
     auto out_layer2_block1_conv1_bn = batchnorm2d(model, "layer2.0.bn1", out_layer2_block1_conv1, out_channels_layer2);
     auto out_layer2_block1_conv1_activated = relu(out_layer2_block1_conv1_bn);
     auto out_layer2_block1_conv2 =
         conv2d(model, "layer2.0.conv2", kernel_size_layer2, out_layer2_block1_conv1_activated, 1, 1,
-               1, 1, 1, 0.20506436, 0.09840791, 0, 0);
+               1, 1, 1, 0.2218977, 0.112875834, 0, 0);
     auto out_layer2_block1_conv2_bn = batchnorm2d(model, "layer2.0.bn2", out_layer2_block1_conv2, out_channels_layer2);
     auto out_layer2_block1_side = conv2d(model, "layer2.0.shortcut.0", kernel_size_layer2_side,
-                                         out_layer1, 2, 2, 0, 0, 1, 0.2363241, 0.22618327, 0, 0);
+                                         out_layer1, 2, 2, 0, 0, 1, 0.22526628, 0.22950733, 0, 0);
     auto out_layer2_block1_side_bn = batchnorm2d(model, "layer2.0.shortcut.1", out_layer2_block1_side, out_channels_layer2);
     auto out_layer2_block1 = relu(out_layer2_block1_conv2_bn + out_layer2_block1_side_bn);
+    auto out_layer2_block2_shortcut = out_layer2_block1;
     auto out_layer2_block2_conv1 =
         conv2d(model, "layer2.1.conv1", kernel_size_layer2, out_layer2_block1, 1, 1, 1, 1, 1,
-               0.4153628, 0.091801964, 0, 0);
+               0.42027146, 0.115681775, 0, 0);
     auto out_layer2_block2_conv1_bn = batchnorm2d(model, "layer2.1.bn1", out_layer2_block2_conv1, out_channels_layer2);
     auto out_layer2_block2_conv1_activated = relu(out_layer2_block2_conv1_bn);
     auto out_layer2_block2_conv2 =
         conv2d(model, "layer2.1.conv2", kernel_size_layer2, out_layer2_block2_conv1_activated, 1, 1,
-               1, 1, 1, 0.12679349, 0.05556722, 0, 0);
+               1, 1, 1, 0.124020286, 0.05618413, 0, 0);
     auto out_layer2_block2_conv2_bn = batchnorm2d(model, "layer2.1.bn2", out_layer2_block2_conv2, out_channels_layer2);
-    auto out_layer2_block2 = relu(out_layer2_block2_conv2_bn);
+    auto out_layer2_block2 = relu(out_layer2_block2_conv2_bn + out_layer2_block2_shortcut);
+    auto out_layer2_block3_shortcut = out_layer2_block2;
     auto out_layer2_block3_conv1 =
         conv2d(model, "layer2.2.conv1", kernel_size_layer2, out_layer2_block2, 1, 1, 1, 1, 1,
-               0.3409865, 0.069791876, 0, 0);
+               0.45166534, 0.09136144, 0, 0);
     auto out_layer2_block3_conv1_bn = batchnorm2d(model, "layer2.2.bn1", out_layer2_block3_conv1, out_channels_layer2);
     auto out_layer2_block3_conv1_activated = relu(out_layer2_block3_conv1_bn);
     auto out_layer2_block3_conv2 =
         conv2d(model, "layer2.2.conv2", kernel_size_layer2, out_layer2_block3_conv1_activated, 1, 1,
-               1, 1, 1, 0.11852138, 0.054968964, 0, 0);
+               1, 1, 1, 0.11652474, 0.052675433, 0, 0);
     auto out_layer2_block3_conv2_bn = batchnorm2d(model, "layer2.2.bn2", out_layer2_block3_conv2, out_channels_layer2);
-    auto out_layer2 = relu(out_layer2_block3_conv2_bn);
+    auto out_layer2 = relu(out_layer2_block3_conv2_bn + out_layer2_block3_shortcut);
 
     // Residual block 3
     auto out_layer3_block1_conv1 = conv2d(model, "layer3.0.conv1", kernel_size_layer3_block1_conv1,
-                                          out_layer2, 2, 2, 1, 1, 1, 0.41307023, 0.06829714, 0, 0);
+                                          out_layer2, 2, 2, 1, 1, 1, 0.5251677, 0.06259379, 0, 0);
     auto out_layer3_block1_conv1_bn = batchnorm2d(model, "layer3.0.bn1", out_layer3_block1_conv1, out_channels_layer3);
     auto out_layer3_block1_conv1_activated = relu(out_layer3_block1_conv1_bn);
     auto out_layer3_block1_conv2 =
         conv2d(model, "layer3.0.conv2", kernel_size_layer3, out_layer3_block1_conv1_activated, 1, 1,
-               1, 1, 1, 0.20590766, 0.07553621, 0, 0);
+               1, 1, 1, 0.19316438, 0.08542627, 0, 0);
     auto out_layer3_block1_conv2_bn = batchnorm2d(model, "layer3.0.bn2", out_layer3_block1_conv2, out_channels_layer3);
     auto out_layer3_block1_side = conv2d(model, "layer3.0.shortcut.0", kernel_size_layer3_side,
-                                         out_layer2, 2, 2, 0, 0, 1, 0.14555822, 0.088570625, 0, 0);
+                                         out_layer2, 2, 2, 0, 0, 1, 0.16222823, 0.095807865, 0, 0);
     auto out_layer3_block1_side_bn = batchnorm2d(model, "layer3.0.shortcut.1", out_layer3_block1_side, out_channels_layer3);
     auto out_layer3_block1 = relu(out_layer3_block1_conv2_bn + out_layer3_block1_side_bn);
+    auto out_layer3_block2_shortcut = out_layer3_block1;
     auto out_layer3_block2_conv1 =
         conv2d(model, "layer3.1.conv1", kernel_size_layer3, out_layer3_block1, 1, 1, 1, 1, 1,
-               0.30014786, 0.057249613, 0, 0);
+               0.2968538, 0.057811435, 0, 0);
     auto out_layer3_block2_conv1_bn = batchnorm2d(model, "layer3.1.bn1", out_layer3_block2_conv1, out_channels_layer3);
     auto out_layer3_block2_conv1_activated = relu(out_layer3_block2_conv1_bn);
     auto out_layer3_block2_conv2 =
         conv2d(model, "layer3.1.conv2", kernel_size_layer3, out_layer3_block2_conv1_activated, 1, 1,
-               1, 1, 1, 0.14932689, 0.05641667, 0, 0);
+               1, 1, 1, 0.13602188, 0.056121763, 0, 0);
     auto out_layer3_block2_conv2_bn = batchnorm2d(model, "layer3.1.bn2", out_layer3_block2_conv2, out_channels_layer3);
-    auto out_layer3_block2 = relu(out_layer3_block2_conv2_bn);
+    auto out_layer3_block2 = relu(out_layer3_block2_conv2_bn + out_layer3_block2_shortcut);
+    auto out_layer3_block3_shortcut = out_layer3_block2;
     auto out_layer3_block3_conv1 =
         conv2d(model, "layer3.2.conv1", kernel_size_layer3, out_layer3_block2, 1, 1, 1, 1, 1,
-               0.40481263, 0.05627785, 0, 0);
+               0.3802826, 0.060154073, 0, 0);
     auto out_layer3_block3_conv1_bn = batchnorm2d(model, "layer3.2.bn1", out_layer3_block3_conv1, out_channels_layer3);
     auto out_layer3_block3_conv1_activated = relu(out_layer3_block3_conv1_bn);
     auto out_layer3_block3_conv2 =
         conv2d(model, "layer3.2.conv2", kernel_size_layer3, out_layer3_block3_conv1_activated, 1, 1,
-               1, 1, 1, 0.19078194, 0.045189634, 0, 0);
+               1, 1, 1, 0.18736099, 0.0453912, 0, 0);
     auto out_layer3_block3_conv2_bn = batchnorm2d(model, "layer3.2.bn2", out_layer3_block3_conv2, out_channels_layer3);
-    auto out_layer3 = relu(out_layer3_block3_conv2_bn);
+    auto out_layer3 = relu(out_layer3_block3_conv2_bn + out_layer3_block3_shortcut);
 
     // Average pooling
-    auto out_avg_pool = maxpool(out_layer3, 8, 8);
+    auto out_avg_pool = avgpool(out_layer3, 8, 8);
 
     // Flatten
     auto out_flatten = flatten(out_avg_pool);
 
     // Fully connected layer
-    out_vector = linear(model, "linear", in_size_fc, out_size_fc, out_flatten, true, 1, 0.30456558,
-                        0.19341168, 0, 0);
+    out_vector = linear(model, "linear", in_size_fc, out_size_fc, out_flatten, true, 1, 0.25510716,
+                        0.20105739, 0, 0);
 
     // Compile the model
     model.compile();
