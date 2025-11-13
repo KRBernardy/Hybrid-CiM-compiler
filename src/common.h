@@ -33,16 +33,16 @@
 
 /* Operation Weights for Load Balancing */
 #define N_STORAGE_TYPES 10
-const unsigned int OP_WEIGHT_MVM[] = {10, 20, 30, 40, 50, 60, 70, 80, 90, 100}; // Weights for MVM op for each storage type
+const unsigned int OP_WEIGHT_MVM[] = {0, 64, 192, 256, 256, 128, 320, 192, 0, 0}; // Weights for MVM op for each storage type
 #define OP_WEIGHT_TRAINING_MVM 12
 #define OP_WEIGHT_TRAINING_MVM_TRANSPOSE 12
 #define OP_WEIGHT_TRAINING_OUTER_PRODUCT 15
-#define OP_WEIGHT_ALU 2
-#define OP_WEIGHT_LOAD 5
-#define OP_WEIGHT_STORE 5
+#define OP_WEIGHT_ALU 10
+#define OP_WEIGHT_LOAD 2
+#define OP_WEIGHT_STORE 1
 #define OP_WEIGHT_SEND 8
-#define OP_WEIGHT_RECV 8
-#define OP_WEIGHT_COPY 3
+#define OP_WEIGHT_RECV 10
+#define OP_WEIGHT_COPY 1
 #define OP_WEIGHT_SETI 1
 #define OP_WEIGHT_INPUT 0
 #define OP_WEIGHT_OUTPUT 0
