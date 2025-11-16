@@ -24,10 +24,10 @@
 #include "puma.h"
 #include "tensors.h"
 
-Partitioner::Partitioner(ModelImpl *model, CompilerOptions::GraphPartitioningScheme gp, bool useOldPartitioner)
-    : model_(model), gp_(gp), useOldPartitioner_(useOldPartitioner) {
-
-    if (useOldPartitioner_) {
+Partitioner::Partitioner(ModelImpl* model, CompilerOptions::GraphPartitioningScheme gp,
+                         bool using_old_logic)
+    : model_(model), gp_(gp), using_old_logic_(using_old_logic) {
+    if (using_old_logic_) {
         std::cout << "Using old partitioner..." << std::endl;
         old_partitioner_ = new Partitioner_old(model, gp);
         nVMVMUs_ = old_partitioner_->getNVMVMUs();
@@ -88,7 +88,7 @@ Partitioner::Partitioner(ModelImpl *model, CompilerOptions::GraphPartitioningSch
         }
         return;
     }
-    
+
     // Step 1: Create matrix tile list and assign to virtual MVMUs
     if(gp_ == CompilerOptions::GP_ROW_MAJOR) {
         CreateMatListInRowMajor();
@@ -262,6 +262,139 @@ void Partitioner::assignMVMUsToVCores() {
     coreWeights_.resize(nVCores_, 0);
 }
 
+void Partitioner::seedAssignmentsFromNeighbors() {
+    bool changed = true;
+    while (changed) {
+        changed = false;
+        for (auto it = model_->op_begin(); it != model_->op_end(); ++it) {
+            Operation* op = *it;
+            if (isVCoreAssigned(op)) {
+                continue;
+            }
+
+            // Try to assign based on operands that already landed on the same core
+            if (ConsumerOperation* consumer = dynamic_cast<ConsumerOperation*>(op)) {
+                bool operandsAssigned = consumer->numOperands() > 0;
+                unsigned int candidateCore = std::numeric_limits<unsigned int>::max();
+                for (unsigned int o = 0; o < consumer->numOperands(); ++o) {
+                    ProducerOperation* operand = consumer->getOperand(o);
+                    if (!isVCoreAssigned(operand)) {
+                        operandsAssigned = false;
+                        break;
+                    }
+                    unsigned int operandCore = getVCore(operand);
+                    if (candidateCore == std::numeric_limits<unsigned int>::max()) {
+                        candidateCore = operandCore;
+                    } else if (candidateCore != operandCore) {
+                        operandsAssigned = false;
+                        break;
+                    }
+                }
+                if (operandsAssigned && candidateCore != std::numeric_limits<unsigned int>::max()) {
+                    assignVCore(op, candidateCore);
+                    changed = true;
+                    continue;
+                }
+            }
+
+            // Try to assign based on already-placed users requesting the same core
+            if (ProducerOperation* producer = dynamic_cast<ProducerOperation*>(op)) {
+                bool usersAssigned = true;
+                unsigned int candidateCore = std::numeric_limits<unsigned int>::max();
+                bool hasUser = false;
+                for (auto u = producer->user_begin(); u != producer->user_end(); ++u) {
+                    ConsumerOperation* consumer = *u;
+                    if (!isVCoreAssigned(consumer)) {
+                        usersAssigned = false;
+                        break;
+                    }
+                    hasUser = true;
+                    unsigned int userCore = getVCore(consumer);
+                    if (candidateCore == std::numeric_limits<unsigned int>::max()) {
+                        candidateCore = userCore;
+                    } else if (candidateCore != userCore) {
+                        usersAssigned = false;
+                        break;
+                    }
+                }
+                if (hasUser && usersAssigned && candidateCore != std::numeric_limits<unsigned int>::max()) {
+                    assignVCore(op, candidateCore);
+                    changed = true;
+                }
+            }
+        }
+    }
+}
+
+int Partitioner::predictPreferredCore(Operation* op) {
+    std::map<unsigned int, unsigned int> affinity;
+
+    if(ConsumerOperation* consumer = dynamic_cast<ConsumerOperation*>(op)) {
+        for(unsigned int o = 0; o < consumer->numOperands(); ++o) {
+            ProducerOperation* operand = consumer->getOperand(o);
+            if(isVCoreAssigned(operand)) {
+                affinity[getVCore(operand)] += operand->length();
+            }
+        }
+    }
+
+    if(ProducerOperation* producer = dynamic_cast<ProducerOperation*>(op)) {
+        for(auto u = producer->user_begin(); u != producer->user_end(); ++u) {
+            ConsumerOperation* user = *u;
+            if(isVCoreAssigned(user)) {
+                affinity[getVCore(user)] += producer->length();
+            }
+        }
+    }
+
+    if(affinity.empty()) {
+        return -1;
+    }
+
+    unsigned int bestCore = affinity.begin()->first;
+    unsigned int bestWeight = 0;
+    for(const auto& entry : affinity) {
+        if(entry.second > bestWeight) {
+            bestWeight = entry.second;
+            bestCore = entry.first;
+        }
+    }
+    return static_cast<int>(bestCore);
+}
+
+long long Partitioner::calculateFutureCommCost(Operation* op, unsigned int vCore) {
+    long long futureCost = 0;
+    auto accountNeighbor = [&](Operation* neighbor, unsigned int weight) {
+        if(neighbor == nullptr || isVCoreAssigned(neighbor)) {
+            return;
+        }
+        int preferredCore = predictPreferredCore(neighbor);
+        if(preferredCore >= 0 && static_cast<unsigned int>(preferredCore) != vCore) {
+            futureCost += weight;
+        }
+    };
+
+    if(ConsumerOperation* consumer = dynamic_cast<ConsumerOperation*>(op)) {
+        for(unsigned int o = 0; o < consumer->numOperands(); ++o) {
+            ProducerOperation* operand = consumer->getOperand(o);
+            if(!isVCoreAssigned(operand)) {
+                accountNeighbor(operand, operand->length());
+            }
+        }
+    }
+
+    if(ProducerOperation* producer = dynamic_cast<ProducerOperation*>(op)) {
+        for(auto u = producer->user_begin(); u != producer->user_end(); ++u) {
+            ConsumerOperation* user = *u;
+            if(!isVCoreAssigned(user)) {
+                accountNeighbor(user, producer->length());
+            }
+        }
+    }
+
+    return futureCost;
+}
+
 unsigned int Partitioner::calculateCommCost(Operation* op, unsigned int vCore) {
     unsigned int commCost = 0;
     
@@ -290,7 +423,7 @@ unsigned int Partitioner::calculateCommCost(Operation* op, unsigned int vCore) {
 
 unsigned int Partitioner::findBestCoreForOperation(Operation* op) {
     unsigned int bestCore = 2;  // Start from first non-reserved core
-    int bestScore = INT_MAX;
+    long long bestScore = LLONG_MAX;
     
     // This function should only be called for non-matrix operations,
     // as matrix operations are assigned in the first pass.
@@ -318,10 +451,11 @@ unsigned int Partitioner::findBestCoreForOperation(Operation* op) {
 
     for(unsigned int vCore = 2; vCore < nVCores_; ++vCore) {
         // Calculate score: current load + operation weight
-        int score = coreWeights_[vCore] + weight;
+        unsigned long long loadScore = coreWeights_[vCore] + weight;
+        long long CommScore = 0;
         
         // Subtract communication benefit (operations on same core don't need communication)
-        unsigned int localCommBenefit = 0;
+        unsigned long long localCommBenefit = 0;
         
         // Check communication with operands
         if(ConsumerOperation* consumer = dynamic_cast<ConsumerOperation*>(op)) {
@@ -332,7 +466,7 @@ unsigned int Partitioner::findBestCoreForOperation(Operation* op) {
                 }
             }
         }
-        
+         
         // Check communication with users
         if(ProducerOperation* producer = dynamic_cast<ProducerOperation*>(op)) {
             for(auto u = producer->user_begin(); u != producer->user_end(); ++u) {
@@ -343,10 +477,14 @@ unsigned int Partitioner::findBestCoreForOperation(Operation* op) {
             }
         }
         
-        score -= localCommBenefit;
+        CommScore -= localCommBenefit;
         
         // Add penalty for remote communication
-        score += calculateCommCost(op, vCore);
+        CommScore += calculateCommCost(op, vCore);
+
+        long long futureCommScore = calculateFutureCommCost(op, vCore);
+
+        long long score = LOAD_SCORE_FACTOR * loadScore + COMM_SCORE_FACTOR * CommScore + FUTURE_COMM_SCORE_FACTOR * futureCommScore;
         
         if(score < bestScore) {
             bestScore = score;
@@ -358,6 +496,8 @@ unsigned int Partitioner::findBestCoreForOperation(Operation* op) {
 }
 
 void Partitioner::assignOperationsToVCores() {
+    const size_t initialAssignments = op2vcore_.size();
+
     // First pass: Assign MVM operations to cores based on their MVMU placement
     for(auto it = model_->op_begin(); it != model_->op_end(); ++it) {
         Operation* op = *it;
@@ -374,7 +514,16 @@ void Partitioner::assignOperationsToVCores() {
             assignVCore(trainOp, vCore);
         }
     }
+
+    numMVMAssignments_ = op2vcore_.size() - initialAssignments;
+    const size_t assignmentsAfterMVM = op2vcore_.size();
     
+    // Seed additional assignments using already placed neighbors to reduce PQ churn
+    seedAssignmentsFromNeighbors();
+
+    numSeedAssignments_ = op2vcore_.size() - assignmentsAfterMVM;
+    const size_t assignmentsAfterSeeding = op2vcore_.size();
+
     // Second pass: Use a priority queue to assign remaining operations
     // Using indexed priority queue with decrease-key support
     struct PQEntry {
@@ -466,7 +615,7 @@ void Partitioner::assignOperationsToVCores() {
             pq.push(new_entry);
         }
     }
-    
+    numPQAssignments_ = op2vcore_.size() - assignmentsAfterSeeding;
 }
 
 void Partitioner::assignVTilesInVCoreOrder() {
@@ -784,7 +933,7 @@ std::string Partitioner::printAssignment(Operation* op) {
 }
 
 void Partitioner::printReport(std::ofstream& report) {
-    if (useOldPartitioner_) {
+    if (using_old_logic_) {
         old_partitioner_->printReport(report);
         return;
     }
@@ -796,6 +945,10 @@ void Partitioner::printReport(std::ofstream& report) {
     report << "  Number of stores inserted: " << numStores_ << std::endl;
     report << "  Number of sends inserted: " << numSends_ << std::endl;
     report << "  Number of receives inserted: " << numReceives_ << std::endl;
+    report << "  Operation assignment counts:" << std::endl;
+    report << "    MVM/training pass: " << numMVMAssignments_ << std::endl;
+    report << "    Neighbor seeding:  " << numSeedAssignments_ << std::endl;
+    report << "    Priority queue:    " << numPQAssignments_ << std::endl;
     
     // Print core load distribution
     report << "\nCore Load Distribution:" << std::endl;
@@ -814,7 +967,7 @@ void Partitioner::printReport(std::ofstream& report) {
 
 // Implement the MVMU assignment functions
 void Partitioner::CreateMatListInRowMajor() {
-    // Extract all matrix tiles in row major order
+    // Extract all matrix tiles in row major order+
     if (model_->getModelType() == ModelImpl::INFERENCE) {
         for (auto m = model_->const_mat_begin(); m != model_->const_mat_end(); ++m) {
             ConstantMatrixImpl* mat = *m;

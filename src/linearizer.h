@@ -20,6 +20,8 @@ class Linearizer {
         Partitioner* partitioner_;
         Placer* placer_;
 
+        bool using_old_logic_;
+
         std::vector<std::list<CoreOperation*>> coreOperationLists_;
         std::vector<std::list<TileOperation*>> tileOperationLists_;
 
@@ -30,7 +32,7 @@ class Linearizer {
 
     public:
 
-        Linearizer(ModelImpl* model, Partitioner* partitioner, Placer* placer);
+        Linearizer(ModelImpl* model, Partitioner* partitioner, Placer* placer, bool using_old_logic=false);
 
         std::list<CoreOperation*>& getCoreOperationList(unsigned int pTile, unsigned int pCore);
         std::list<TileOperation*>& getTileOperationList(unsigned int pTile);

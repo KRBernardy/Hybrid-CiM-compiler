@@ -7,6 +7,7 @@
  */
 
 #include <assert.h>
+#include <algorithm>
 
 #include "puma.h"
 
@@ -16,8 +17,8 @@
 #include "partitioner.h"
 #include "placer.h"
 
-Linearizer::Linearizer(ModelImpl* model, Partitioner* partitioner, Placer* placer)
-    : model_(model), partitioner_(partitioner), placer_(placer), coreOperationLists_(placer_->getNPCores()), tileOperationLists_(placer_->getNPTiles())
+Linearizer::Linearizer(ModelImpl* model, Partitioner* partitioner, Placer* placer, bool using_old_logic)
+    : model_(model), partitioner_(partitioner), placer_(placer), coreOperationLists_(placer_->getNPCores()), tileOperationLists_(placer_->getNPTiles()), using_old_logic_(using_old_logic)
 {
     linearize();
 }
@@ -179,39 +180,103 @@ void Linearizer::addToList(Operation* op, std::set<Operation*>& isVisited) {
 }
 
 void Linearizer::addConsumersToList(ProducerOperation* producer, std::set<Operation*>& isVisited, std::set<Operation*>& wasAddedEarly) {
-    bool allConsumersCanBeAdded = true;
-    for(auto u = producer->user_begin(); u != producer->user_end(); ++u) {
-        ConsumerOperation* consumer = *u;
-        bool consumerCanBeAdded = true;
-        for(unsigned int o = 0; o < consumer->numOperands(); ++o) {
-            if(!isVisited.count(consumer->getOperand(o))) {
-                consumerCanBeAdded = false;
+    if (using_old_logic_) {
+        bool allConsumersCanBeAdded = true;
+        for (auto u = producer->user_begin(); u != producer->user_end(); ++u) {
+            ConsumerOperation* consumer = *u;
+            bool consumerCanBeAdded = true;
+            for (unsigned int o = 0; o < consumer->numOperands(); ++o) {
+                if (!isVisited.count(consumer->getOperand(o))) {
+                    consumerCanBeAdded = false;
+                    break;
+                }
+            }
+            if (!consumerCanBeAdded) {
+                allConsumersCanBeAdded = false;
                 break;
             }
         }
-        if(!consumerCanBeAdded) {
-            allConsumersCanBeAdded = false;
-            break;
-        }
-    }
-    if(allConsumersCanBeAdded) {
-        for(auto u = producer->user_begin(); u != producer->user_end(); ++u) {
-            ConsumerOperation* consumer = *u;
-            if(!wasAddedEarly.count(consumer)) {
-                addToList(consumer, isVisited);
-                wasAddedEarly.insert(consumer);
+        if (allConsumersCanBeAdded) {
+            for (auto u = producer->user_begin(); u != producer->user_end(); ++u) {
+                ConsumerOperation* consumer = *u;
+                if (!wasAddedEarly.count(consumer)) {
+                    addToList(consumer, isVisited);
+                    wasAddedEarly.insert(consumer);
+                }
+            }
+        } else {
+            CopyOperation* copy = new CopyOperation(model_, producer);
+            partitioner_->cloneAssignment(producer, copy);
+            addToList(copy, isVisited);
+            for (auto u = producer->user_begin(); u != producer->user_end();) {
+                ConsumerOperation* consumer = *u;
+                ++u;  // replaceOperand may remove consumer from producer's users
+                if (consumer != copy) {
+                    consumer->replaceOperand(producer, copy);
+                }
             }
         }
-    } else {
+        return;
+    }
+    auto operandsReady = [&](ConsumerOperation* consumer) {
+        for(unsigned int o = 0; o < consumer->numOperands(); ++o) {
+            if(!isVisited.count(consumer->getOperand(o))) {
+                return false;
+            }
+        }
+        return true;
+    };
+
+    std::vector<ConsumerOperation*> readyConsumers;
+    std::vector<ConsumerOperation*> blockedConsumers;
+    for(auto u = producer->user_begin(); u != producer->user_end(); ++u) {
+        ConsumerOperation* consumer = *u;
+        if(isVisited.count(consumer)) {
+            continue;
+        }
+        if(operandsReady(consumer)) {
+            readyConsumers.push_back(consumer);
+        } else {
+            blockedConsumers.push_back(consumer);
+        }
+    }
+
+    auto consumerPriority = [](ConsumerOperation* consumer) {
+        if(dynamic_cast<StoreOperation*>(consumer)) {
+            return 0;
+        }
+        if(dynamic_cast<SendOperation*>(consumer)) {
+            return 1;
+        }
+        if(dynamic_cast<LoadOperation*>(consumer)) {
+            return 2;
+        }
+        if(dynamic_cast<ReceiveOperation*>(consumer)) {
+            return 3;
+        }
+        return 4;
+    };
+
+    if(!readyConsumers.empty()) {
+        std::stable_sort(readyConsumers.begin(), readyConsumers.end(), [&](ConsumerOperation* lhs, ConsumerOperation* rhs) {
+            return consumerPriority(lhs) < consumerPriority(rhs);
+        });
+
+        for(ConsumerOperation* consumer : readyConsumers) {
+            if(wasAddedEarly.count(consumer) || isVisited.count(consumer)) {
+                continue;
+            }
+            addToList(consumer, isVisited);
+            wasAddedEarly.insert(consumer);
+        }
+    }
+
+    if(!blockedConsumers.empty()) {
         CopyOperation* copy = new CopyOperation(model_, producer);
         partitioner_->cloneAssignment(producer, copy);
         addToList(copy, isVisited);
-        for(auto u = producer->user_begin(); u != producer->user_end(); ) {
-            ConsumerOperation* consumer = *u;
-            ++u; // replaceOperand may remove consumer from producer's users
-            if(consumer != copy) {
-                consumer->replaceOperand(producer, copy);
-            }
+        for(ConsumerOperation* consumer : blockedConsumers) {
+            consumer->replaceOperand(producer, copy);
         }
     }
 }

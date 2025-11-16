@@ -23,7 +23,7 @@ class Partitioner {
 
     public:
 
-        Partitioner(ModelImpl* model, CompilerOptions::GraphPartitioningScheme gp, bool useOldPartitioner=false);
+        Partitioner(ModelImpl* model, CompilerOptions::GraphPartitioningScheme gp, bool usingOldLogic=false);
 
         unsigned int getVMVMU(Operation* op);
         unsigned int getVCore(Operation* op);
@@ -52,7 +52,7 @@ class Partitioner {
 
         ModelImpl* model_;
         CompilerOptions::GraphPartitioningScheme gp_;
-        bool useOldPartitioner_;
+        bool using_old_logic_;
         Partitioner_old* old_partitioner_;
 
         unsigned int nVMVMUs_;
@@ -75,7 +75,7 @@ class Partitioner {
         std::vector<unsigned int> vtileType_;
         
         // Load balancing
-        std::vector<unsigned int> coreWeights_;  // Track computational load per core
+        std::vector<unsigned long long> coreWeights_;  // Track computational load per core
         std::vector<std::set<unsigned int>> coreMVMUs_;  // Track MVMUs assigned to each core
 
         // Assignment functions
@@ -84,6 +84,7 @@ class Partitioner {
         void CreateMatListRandomly();
         void assignMatsToVMVMUs();
         void assignMVMUsToVCores();
+        void seedAssignmentsFromNeighbors();
         void assignOperationsToVCores();
         void assignVTilesInVCoreOrder();
         void assignVTilesWithKaHIP();
@@ -92,6 +93,8 @@ class Partitioner {
         bool isVCoreAssigned(Operation* op);
         void assignVCore(Operation* op, unsigned int vCore);
         unsigned int calculateCommCost(Operation* op, unsigned int vCore);
+        long long calculateFutureCommCost(Operation* op, unsigned int vCore);
+        int predictPreferredCore(Operation* op);
         unsigned int findBestCoreForOperation(Operation* op);
         void unlink(Operation* op);
 
@@ -106,6 +109,11 @@ class Partitioner {
         unsigned int numStores_ = 0;
         unsigned int numSends_ = 0;
         unsigned int numReceives_ = 0;
+
+        // Assignment statistics
+        unsigned int numMVMAssignments_ = 0;
+        unsigned int numSeedAssignments_ = 0;
+        unsigned int numPQAssignments_ = 0;
 
 };
 

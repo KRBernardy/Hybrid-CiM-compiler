@@ -46,6 +46,9 @@ const unsigned int OP_WEIGHT_MVM[] = {0, 384, 770, 770, 962, 514, 770, 450, 0, 0
 #define OP_WEIGHT_SETI 1
 #define OP_WEIGHT_INPUT 0
 #define OP_WEIGHT_OUTPUT 0
+#define LOAD_SCORE_FACTOR 1
+#define COMM_SCORE_FACTOR 1000000
+#define FUTURE_COMM_SCORE_FACTOR 500000
 
 /* tensors.h */
 class AbstractTensor;

@@ -224,7 +224,7 @@ void ModelImpl::compile(CompilerOptions& options) {
 
     // Model partitioning
     std::cout << "Partitioning graph... " << std::flush;
-    partitioner_ = new Partitioner(this, options.gp_, options.useOldPartitioner_);
+    partitioner_ = new Partitioner(this, options.gp_, options.usingOldLogic_);
     std::cout << "done." << std::endl;
     if(options.printDebugInfo_) {
         printGraph(name_ + "-graph1-partitioned.dot");
@@ -255,7 +255,7 @@ void ModelImpl::compile(CompilerOptions& options) {
 
     // Linearization
     std::cout << "Linearizing graph... " << std::flush;
-    linearizer_ = new Linearizer(this, partitioner_, placer_);
+    linearizer_ = new Linearizer(this, partitioner_, placer_, options.usingOldLogic_);
     std::cout << "done." << std::endl;
     if(options.printDebugInfo_) {
         printGraph(name_ + "-graph4-linearization.dot");
